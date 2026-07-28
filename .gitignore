@@ -1,0 +1,11 @@
+# 모든 파일 제외
+*
+
+# .py 파일만 허용
+!*.py
+
+# requirements.txt 허용
+!requirements.txt
+
+# .gitignore 자체 허용
+!.gitignore
