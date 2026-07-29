@@ -91,6 +91,31 @@ def update_client(client_id, name, birth_date, address, phone, welfare_type, not
     conn.close()
 
 
+def find_duplicates(name: str, birth_date: str, phone: str, exclude_id: int | None = None) -> pd.DataFrame:
+    """
+    이름+생년월일이 같거나, 전화번호가 같은 기존 대상자를 찾습니다.
+    (생년월일/전화번호가 비어있으면 그 조건은 비교하지 않습니다.)
+
+    exclude_id: 수정 중인 대상자 본인은 중복 검사에서 제외하고 싶을 때 그 id를 넘깁니다.
+    """
+    conn = get_connection()
+
+    query = """
+        SELECT * FROM clients
+        WHERE (name = ? AND birth_date = ? AND birth_date != '')
+           OR (phone = ? AND phone != '')
+    """
+    params = [name, birth_date, phone]
+
+    if exclude_id is not None:
+        query += " AND id != ?"
+        params.append(exclude_id)
+
+    df = pd.read_sql_query(query, conn, params=params)
+    conn.close()
+    return df
+
+
 def delete_client(client_id: int):
     """대상자 정보를 삭제합니다."""
     conn = get_connection()
