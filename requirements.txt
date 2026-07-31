@@ -1,0 +1,9 @@
+streamlit
+pandas
+<<<<<<< HEAD
+openpyxl
+docxtpl
+jinja2
+=======
+openpyxl
+>>>>>>> cf95d36846065d68c68ec7c89aec76a193b6c4e3
