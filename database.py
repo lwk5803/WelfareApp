@@ -24,7 +24,6 @@ from datetime import datetime
 
 DB_PATH = "welfare.db"
 
-<<<<<<< HEAD
 # get_client()에서 SELECT할 컬럼 순서를 명시적으로 정해둡니다.
 # "SELECT *"로 가져오면 실제 테이블에 저장된 물리적 순서를 따르는데,
 # 나중에 ALTER TABLE로 컬럼을 추가하면 그 컬럼이 항상 맨 뒤에 붙어서
@@ -40,8 +39,6 @@ class DatabaseError(Exception):
     """DB 작업 중 문제가 생겼을 때, 사용자에게 보여줄 친절한 메시지를 담는 예외입니다."""
     pass
 
-=======
->>>>>>> cf95d36846065d68c68ec7c89aec76a193b6c4e3
 
 def get_connection():
     """SQLite 데이터베이스 연결을 반환합니다."""
@@ -49,7 +46,6 @@ def get_connection():
     return conn
 
 
-<<<<<<< HEAD
 def init_db() -> bool:
     """
     앱 최초 실행 시 테이블이 없으면 생성하고, 전화번호 중복 방지용 인덱스를 만듭니다.
@@ -57,20 +53,13 @@ def init_db() -> bool:
 
     반환값: 전화번호 중복 방지 인덱스가 정상적으로 만들어졌으면 True.
     """
-=======
-def init_db():
-    """앱 최초 실행 시 테이블이 없으면 생성합니다."""
->>>>>>> cf95d36846065d68c68ec7c89aec76a193b6c4e3
     conn = get_connection()
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS clients (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-<<<<<<< HEAD
             gender TEXT,
-=======
->>>>>>> cf95d36846065d68c68ec7c89aec76a193b6c4e3
             birth_date TEXT,
             address TEXT,
             phone TEXT,
@@ -81,7 +70,6 @@ def init_db():
         """
     )
     conn.commit()
-<<<<<<< HEAD
 
     # ---- 마이그레이션: 예전 버전(gender 컬럼이 없던 시절)의 DB를 쓰고 계셨다면 ----
     # PRAGMA table_info로 지금 테이블에 실제로 어떤 컬럼이 있는지 확인하고,
@@ -117,21 +105,10 @@ def get_all_clients() -> pd.DataFrame:
         raise DatabaseError("회원 목록을 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.") from e
     finally:
         conn.close()
-=======
-    conn.close()
-
-
-def get_all_clients() -> pd.DataFrame:
-    """모든 대상자 정보를 pandas DataFrame으로 가져옵니다."""
-    conn = get_connection()
-    df = pd.read_sql_query("SELECT * FROM clients ORDER BY id DESC", conn)
-    conn.close()
->>>>>>> cf95d36846065d68c68ec7c89aec76a193b6c4e3
     return df
 
 
 def get_client(client_id: int) -> dict | None:
-<<<<<<< HEAD
     """특정 id의 회원 정보를 한 건 가져옵니다."""
     conn = get_connection()
     try:
@@ -151,56 +128,6 @@ def get_client(client_id: int) -> dict | None:
 
 def find_duplicates(name: str, birth_date: str, phone: str, exclude_id: int | None = None) -> pd.DataFrame:
     """이름+생년월일이 같거나, 전화번호가 같은 기존 회원을 찾습니다."""
-=======
-    """특정 id의 대상자 정보를 한 건 가져옵니다."""
-    conn = get_connection()
-    cur = conn.execute("SELECT * FROM clients WHERE id = ?", (client_id,))
-    row = cur.fetchone()
-    conn.close()
-    if row is None:
-        return None
-    columns = ["id", "name", "birth_date", "address", "phone", "welfare_type", "note", "created_at"]
-    return dict(zip(columns, row))
-
-
-def add_client(name, birth_date, address, phone, welfare_type, note):
-    """새 대상자를 등록합니다."""
-    conn = get_connection()
-    conn.execute(
-        """
-        INSERT INTO clients (name, birth_date, address, phone, welfare_type, note, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (name, birth_date, address, phone, welfare_type, note,
-         datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-    )
-    conn.commit()
-    conn.close()
-
-
-def update_client(client_id, name, birth_date, address, phone, welfare_type, note):
-    """기존 대상자 정보를 수정합니다."""
-    conn = get_connection()
-    conn.execute(
-        """
-        UPDATE clients
-        SET name = ?, birth_date = ?, address = ?, phone = ?, welfare_type = ?, note = ?
-        WHERE id = ?
-        """,
-        (name, birth_date, address, phone, welfare_type, note, client_id),
-    )
-    conn.commit()
-    conn.close()
-
-
-def find_duplicates(name: str, birth_date: str, phone: str, exclude_id: int | None = None) -> pd.DataFrame:
-    """
-    이름+생년월일이 같거나, 전화번호가 같은 기존 대상자를 찾습니다.
-    (생년월일/전화번호가 비어있으면 그 조건은 비교하지 않습니다.)
-
-    exclude_id: 수정 중인 대상자 본인은 중복 검사에서 제외하고 싶을 때 그 id를 넘깁니다.
-    """
->>>>>>> cf95d36846065d68c68ec7c89aec76a193b6c4e3
     conn = get_connection()
 
     query = """
@@ -214,7 +141,6 @@ def find_duplicates(name: str, birth_date: str, phone: str, exclude_id: int | No
         query += " AND id != ?"
         params.append(exclude_id)
 
-<<<<<<< HEAD
     try:
         df = pd.read_sql_query(query, conn, params=params)
     except sqlite3.Error as e:
@@ -277,16 +203,3 @@ def delete_client(client_id: int):
         raise DatabaseError("회원 삭제 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.") from e
     finally:
         conn.close()
-=======
-    df = pd.read_sql_query(query, conn, params=params)
-    conn.close()
-    return df
-
-
-def delete_client(client_id: int):
-    """대상자 정보를 삭제합니다."""
-    conn = get_connection()
-    conn.execute("DELETE FROM clients WHERE id = ?", (client_id,))
-    conn.commit()
-    conn.close()
->>>>>>> cf95d36846065d68c68ec7c89aec76a193b6c4e3
