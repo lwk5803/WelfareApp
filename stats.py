@@ -105,6 +105,45 @@ def build_summary(df: pd.DataFrame) -> dict:
     }
 
 
+def build_period_breakdown(df: pd.DataFrame, period: str) -> pd.DataFrame:
+    """
+    등록일시(created_at) 기준으로 지정한 기간 단위(일/월/년)별로,
+    신규가입 수 + 성별 인원수 + 회원 구분별 인원수를 표(DataFrame)로 만들어 돌려줍니다.
+
+    반환되는 표의 컬럼: 기간, 신규가입, 남, 여, 일반, 차상위, 수급자
+    최근 기간이 맨 위로 오도록 정렬됩니다.
+    """
+    freq_map = {"일": "D", "월": "M", "년": "Y"}
+    freq = freq_map[period]
+
+    # 원본 df를 직접 건드리지 않도록 복사본에 임시 컬럼(_period)을 추가합니다.
+    work_df = df.copy()
+    work_df["_period"] = pd.to_datetime(work_df["created_at"], errors="coerce").dt.to_period(freq)
+    work_df = work_df.dropna(subset=["_period"])
+
+    if work_df.empty:
+        return pd.DataFrame(columns=["기간", "신규가입", "남", "여", "일반", "차상위", "수급자"])
+
+    rows = []
+    # groupby("_period"): 같은 기간(예: 같은 달)에 속한 행들을 하나의 묶음(group)으로 모아줍니다.
+    for period_value, group in work_df.groupby("_period"):
+        gender_counts = group["gender"].replace("", "미입력").fillna("미입력").value_counts()
+        type_counts = group["welfare_type"].replace("", "미입력").fillna("미입력").value_counts()
+
+        rows.append({
+            "기간": str(period_value),
+            "신규가입": len(group),
+            "남": int(gender_counts.get("남", 0)),
+            "여": int(gender_counts.get("여", 0)),
+            "일반": int(type_counts.get("일반", 0)),
+            "차상위": int(type_counts.get("차상위", 0)),
+            "수급자": int(type_counts.get("수급자", 0)),
+        })
+
+    result = pd.DataFrame(rows)
+    return result.sort_values("기간", ascending=False).reset_index(drop=True)
+
+
 def build_period_trend(df: pd.DataFrame, period: str) -> pd.Series:
     """
     등록일시(created_at) 기준으로 일/주/월/년 단위 신규 등록 추이를 계산합니다.
