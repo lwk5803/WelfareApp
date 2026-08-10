@@ -16,6 +16,9 @@ import parsers
 import stats
 import address_api
 import excel_import
+import welfare_search
+import ai_recommend
+import gov_welfare_api
 
 st.set_page_config(page_title="복지관 회원 관리", layout="wide")
 
@@ -27,7 +30,7 @@ if "db_ready" not in st.session_state:
 
 st.title("복지관 회원 관리")
 
-menu = st.sidebar.radio("메뉴", ["회원 목록", "회원 등록/수정/삭제", "회원 통계"])
+menu = st.sidebar.radio("메뉴", ["회원 목록", "회원 등록/수정/삭제", "회원 통계", "추천 복지 서비스"])
 
 GENDER_OPTIONS = ["남", "여"]
 WELFARE_TYPES = ["일반", "차상위", "수급자"]
@@ -667,3 +670,180 @@ elif menu == "회원 통계":
                 st.info("표시할 데이터가 없습니다.")
             else:
                 st.dataframe(yearly_df, use_container_width=True, hide_index=True)
+
+
+# ----------------------------------------------------------------------
+# 4) 추천 복지 서비스
+# ----------------------------------------------------------------------
+elif menu == "추천 복지 서비스":
+    st.subheader("추천 복지 서비스")
+    st.caption(
+        "회원을 선택하면 연령·성별·회원 구분·거주 지역을 바탕으로 관련 복지서비스를 "
+        "찾아드리고, 이후 채팅으로 추가 질문도 하실 수 있습니다."
+    )
+    st.warning(
+        "⚠️ 이 기능은 회원의 나이·성별·구분·거주 지역과 비고 내용, 그리고 채팅으로 "
+        "입력하시는 내용을 외부 검색/AI 서비스(Tavily, OpenAI)로 전송합니다. "
+        "이름·전화번호·상세 주소는 자동 전송하지 않지만, 채팅창이나 비고란에 민감한 "
+        "내용을 직접 입력하시면 그대로 전송되니 유의해주세요."
+    )
+
+    try:
+        df = db.get_all_clients()
+    except db.DatabaseError as e:
+        st.error(str(e))
+        st.stop()
+
+    if df.empty:
+        st.info("등록된 회원이 없습니다.")
+    else:
+        # ---- 기능 1: 대상자 검색 ----
+        recommend_search_keyword = st.text_input(
+            "이름으로 검색", placeholder="이름을 입력하세요 (전체를 보려면 비워두세요)", key="recommend_search"
+        )
+        if recommend_search_keyword:
+            recommend_target_df = df[
+                df["name"].str.contains(recommend_search_keyword, na=False, regex=False)
+            ]
+        else:
+            recommend_target_df = df
+
+        if recommend_target_df.empty:
+            st.info("검색 결과가 없습니다.")
+            st.stop()
+
+        options = {f"{row['id']} - {row['name']}": row["id"] for _, row in recommend_target_df.iterrows()}
+        selected_label = st.selectbox("회원 선택", options.keys(), key="recommend_select")
+        selected_id = options[selected_label]
+
+        try:
+            member = db.get_client(selected_id)
+        except db.DatabaseError as e:
+            st.error(str(e))
+            st.stop()
+
+        if member is None:
+            st.warning("선택하신 회원 정보를 찾을 수 없습니다. 목록이 방금 바뀌었을 수 있어요.")
+            st.stop()
+
+        age = stats.compute_age(member["birth_date"] or "")
+        st.markdown(
+            f"**대상**: {member['name']} 님 "
+            f"({age if age is not None else '나이 미상'}세, "
+            f"{member['gender'] or '성별 미상'}, "
+            f"{member['welfare_type'] or '구분 미상'})"
+        )
+        if member.get("note"):
+            st.caption(f"비고: {member['note']}")
+
+        profile_summary = (
+            f"나이: {age if age is not None else '미상'}세\n"
+            f"성별: {member['gender'] or '미상'}\n"
+            f"회원 구분: {member['welfare_type'] or '미상'}\n"
+            f"거주 지역: {welfare_search.extract_region(member['address'] or '')}\n"
+            f"비고: {member['note'] or '없음'}"
+        )
+
+        # ---- 기능 2: 챗봇 대화 ----
+        # 회원마다 대화 내용을 따로 기억하도록, session_state의 키에 회원 id를 포함시킵니다.
+        api_key_name = f"recommend_chat_api_{selected_id}"
+        display_key_name = f"recommend_chat_display_{selected_id}"
+
+        if api_key_name not in st.session_state:
+            st.session_state[api_key_name] = [
+                {"role": "system", "content": ai_recommend.build_system_prompt(profile_summary)}
+            ]
+            st.session_state[display_key_name] = []
+
+        col_start, col_reset = st.columns(2)
+        with col_start:
+            start_clicked = st.button(
+                "복지서비스 검색 및 추천 받기",
+                use_container_width=True,
+                disabled=bool(st.session_state[display_key_name]),
+            )
+        with col_reset:
+            if st.button("대화 초기화", use_container_width=True):
+                del st.session_state[api_key_name]
+                del st.session_state[display_key_name]
+                st.rerun()
+
+        # 이미 나눈 대화를 화면에 그립니다.
+        for msg in st.session_state[display_key_name]:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+        def _run_chat_turn(user_text: str, display_text: str | None = None):
+            """사용자 메시지를 대화에 추가하고, AI 응답까지 받아와 화면에 반영하는 내부 함수입니다."""
+            st.session_state[api_key_name].append({"role": "user", "content": user_text})
+            st.session_state[display_key_name].append(
+                {"role": "user", "content": display_text if display_text is not None else user_text}
+            )
+            try:
+                answer, new_results, updated_messages = ai_recommend.chat_turn(
+                    st.session_state[api_key_name]
+                )
+                st.session_state[api_key_name] = updated_messages
+                st.session_state[display_key_name].append({"role": "assistant", "content": answer})
+                if new_results:
+                    st.session_state[f"recommend_sources_{selected_id}"] = new_results
+            except ai_recommend.AIRecommendError as e:
+                st.session_state[display_key_name].append(
+                    {"role": "assistant", "content": f"⚠️ {e}"}
+                )
+
+        if start_clicked:
+            gov_context = ""
+            with st.spinner("공공데이터에서 관련 정부 복지서비스를 조회하는 중입니다..."):
+                try:
+                    matched_services = gov_welfare_api.fetch_welfare_list(
+                        age=age, welfare_type=member["welfare_type"], num_of_rows=20
+                    )
+
+                    detail_blocks = []
+                    for s in matched_services[:5]:  # 너무 많으면 비용/속도 부담이 커서 상위 5개만
+                        try:
+                            detail = gov_welfare_api.fetch_welfare_detail(s["servId"])
+                            detail_blocks.append(
+                                f"[정부 공식 서비스 - 전국민 대상] {detail['servNm']} (주관: {detail['jurMnofNm']})\n"
+                                f"개요: {detail['outline']}\n"
+                                f"지원대상: {detail['target']}\n"
+                                f"선정기준: {detail['criteria']}\n"
+                                f"지원내용: {detail['benefit']}\n"
+                                f"신청방법: {'; '.join(detail['apply_methods']) or '확인 필요'}"
+                            )
+                        except gov_welfare_api.GovWelfareError:
+                            continue  # 한 건 상세조회가 실패해도 나머지는 계속 진행합니다.
+
+                    gov_context = "\n\n".join(detail_blocks)
+                except gov_welfare_api.GovWelfareError as e:
+                    st.warning(f"공공데이터 복지서비스 조회에 실패했습니다: {e} (웹 검색 결과만으로 진행합니다)")
+
+            initial_message = (
+                "다음은 정부 공공데이터(중앙부처 복지서비스)에서 이 회원님과 관련성이 높아 "
+                "보이는 서비스입니다:\n\n"
+                f"{gov_context or '(조건에 맞는 정부 공식 서비스를 찾지 못했습니다.)'}\n\n"
+                "위 자료와, 필요하다면 추가 웹 검색을 통해 이 회원님께 맞는 복지서비스와 "
+                "정책을 종합적으로 찾아서 정리해주세요."
+            )
+
+            with st.spinner("웹에서도 검색하고 정리하는 중입니다 (검색을 여러 번 시도할 수 있어 시간이 걸릴 수 있어요)..."):
+                _run_chat_turn(initial_message, display_text="복지서비스 추천 요청")
+            st.rerun()
+
+        user_question = st.chat_input("추가로 궁금한 점을 물어보세요 (예: 다른 지원 제도도 알려줘, 신청 절차를 더 자세히 알려줘)")
+        if user_question:
+            with st.spinner("AI가 답변을 준비하는 중입니다..."):
+                _run_chat_turn(user_question)
+            st.rerun()
+
+        if st.session_state.get(f"recommend_sources_{selected_id}"):
+            with st.expander("참고한 검색 자료"):
+                for r in st.session_state[f"recommend_sources_{selected_id}"]:
+                    st.markdown(f"- [{r['title']}]({r['url']})")
+
+        if st.session_state[display_key_name]:
+            st.caption(
+                "⚠️ AI 답변은 검색 자료를 바탕으로 한 참고용입니다. "
+                "실제 자격 요건은 반드시 해당 기관에 재확인해주세요."
+            )
