@@ -18,6 +18,11 @@ import streamlit as st
 
 API_URL = "https://api.tavily.com/search"
 
+# 같은 검색어로 다시 검색할 때 API를 재호출하지 않도록 캐싱하는 유효기간(초 단위).
+# 웹 검색 결과는 정부 공식 데이터보다는 자주 바뀔 수 있어서, gov_welfare_api.py의
+# 24시간보다 짧은 12시간으로 뒀습니다.
+CACHE_TTL_SECONDS = 60 * 60 * 12
+
 
 class WelfareSearchError(Exception):
     """복지서비스 검색 중 문제가 생겼을 때, 사용자에게 보여줄 친절한 메시지를 담는 예외입니다."""
@@ -49,6 +54,21 @@ def extract_region(address: str) -> str:
     return " ".join(parts[:2])
 
 
+def extract_ctpv_sgg(address: str) -> tuple[str, str]:
+    """
+    주소 문자열에서 시/도와 시/군/구를 따로 분리해서 돌려줍니다.
+    지자체복지서비스 API가 이 둘을 별도의 파라미터(ctpvNm, sggNm)로 요구하기 때문입니다.
+    예: "서울특별시 강남구 테헤란로 123" -> ("서울특별시", "강남구")
+    """
+    if not address:
+        return "", ""
+    parts = address.strip().split()
+    ctpv_nm = parts[0] if len(parts) >= 1 else ""
+    sgg_nm = parts[1] if len(parts) >= 2 else ""
+    return ctpv_nm, sgg_nm
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
 def search_web(query: str, max_results: int = 5) -> list[dict]:
     """
     주어진 검색어로 웹을 검색합니다.

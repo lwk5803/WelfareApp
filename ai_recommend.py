@@ -1,13 +1,20 @@
 """
 ai_recommend.py
 ----------------
-회원 프로필 요약과 웹 검색 결과를 바탕으로, GPT(OpenAI) 모델이 맞춤 복지서비스를
-정리해주는 함수를 모아둔 파일입니다. 이제는 한 번 정리해서 끝나는 게 아니라,
-후속 질문에 이어서 답하고 필요하면 스스로 추가 검색까지 하는 챗봇 구조입니다.
+회원 프로필 요약과 웹 검색 결과를 바탕으로, GPT 계열 모델이 맞춤 복지서비스를
+정리해주는 함수를 모아둔 파일입니다. 한 번 정리해서 끝나는 게 아니라, 후속 질문에
+이어서 답하고 필요하면 스스로 추가 검색까지 하는 챗봇 구조입니다.
 
-사용 전 준비:
-    1. https://platform.openai.com 에서 API 키 발급
-    2. .streamlit/secrets.toml에 OPENAI_API_KEY 추가
+두 가지 방식으로 쓸 수 있습니다:
+    1) OpenAI (기본값) - .streamlit/secrets.toml에 OPENAI_API_KEY 추가
+    2) 로컬 모델 (Ollama) - 비용 없이 로컬 테스트용
+       secrets.toml에 AI_PROVIDER = "local" 추가
+       (선택) LOCAL_MODEL_NAME, LOCAL_BASE_URL로 모델/주소 변경 가능
+
+로컬로 테스트하려면:
+    ollama pull qwen3:8b
+    ollama serve
+그 다음 secrets.toml에 AI_PROVIDER = "local" 한 줄만 추가하면 됩니다.
 """
 
 import json
@@ -17,10 +24,13 @@ import streamlit as st
 
 import welfare_search
 
-MODEL_NAME = "gpt-4o-mini"
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+DEFAULT_LOCAL_MODEL = "qwen3:8b"
+DEFAULT_LOCAL_BASE_URL = "http://localhost:11434/v1"
 
 # 검색 결과 하나당 GPT에게 넘기는 최대 글자 수입니다. 이게 없으면 검색 결과 본문이
 # 길 때 대화가 순식간에 커져서, 컨텍스트 한도를 넘기거나 비용이 급격히 늘 수 있습니다.
+# (로컬 모델은 VRAM이 넉넉하지 않을수록 이 값이 더 중요해집니다.)
 MAX_CONTENT_CHARS = 800
 
 SEARCH_TOOL = [
@@ -50,7 +60,43 @@ class AIRecommendError(Exception):
     pass
 
 
-def get_client() -> OpenAI:
+def _get_provider() -> str:
+    """
+    "openai" 또는 "local" 중 어떤 걸 쓸지 결정합니다.
+    secrets.toml에 AI_PROVIDER를 안 적어두면 기본값은 "openai"입니다.
+    """
+    try:
+        provider = st.secrets.get("AI_PROVIDER")
+    except FileNotFoundError:
+        provider = None
+    return (provider or "openai").strip().lower()
+
+
+def get_client() -> tuple[OpenAI, str]:
+    """
+    설정(AI_PROVIDER)에 맞는 클라이언트와, 그 설정에서 쓸 모델 이름을 함께 돌려줍니다.
+
+    - "openai"(기본값): OPENAI_API_KEY 필요, 유료 API
+    - "local": Ollama 등 OpenAI 호환 로컬 서버 필요, 무료
+    """
+    provider = _get_provider()
+
+    if provider == "local":
+        try:
+            model_name = st.secrets.get("LOCAL_MODEL_NAME")
+        except FileNotFoundError:
+            model_name = None
+        try:
+            base_url = st.secrets.get("LOCAL_BASE_URL")
+        except FileNotFoundError:
+            base_url = None
+
+        # Ollama는 api_key 값을 실제로 검사하지 않지만, OpenAI 클라이언트 라이브러리는
+        # 빈 값을 안 받아줘서 의미 없는 문자열("ollama")을 그냥 채워 넣습니다.
+        client = OpenAI(base_url=base_url or DEFAULT_LOCAL_BASE_URL, api_key="ollama")
+        return client, (model_name or DEFAULT_LOCAL_MODEL)
+
+    # provider == "openai" (기본값)
     try:
         api_key = st.secrets.get("OPENAI_API_KEY")
     except FileNotFoundError:
@@ -59,9 +105,10 @@ def get_client() -> OpenAI:
     if not api_key:
         raise AIRecommendError(
             "OpenAI API 키가 설정되지 않았습니다. .streamlit/secrets.toml에 "
-            "OPENAI_API_KEY를 추가해주세요."
+            "OPENAI_API_KEY를 추가해주세요. (로컬 모델로 테스트하려면 대신 "
+            "AI_PROVIDER = \"local\"을 추가하세요.)"
         )
-    return OpenAI(api_key=api_key)
+    return OpenAI(api_key=api_key), DEFAULT_OPENAI_MODEL
 
 
 def build_system_prompt(profile_summary: str) -> str:
@@ -83,6 +130,9 @@ def build_system_prompt(profile_summary: str) -> str:
   (예: 회원이 "서울특별시 강남구"인데 검색 자료가 "부산광역시" 사업이면 제외).
   검색 자료만으로 그 서비스가 전국 대상인지 특정 지역 대상인지 판단할 수 없으면,
   안내는 하되 "지역 해당 여부 확인 필요"라고 표시하세요.
+- **성별 검증(중요)**: [회원 프로필]의 "성별"과 명백히 맞지 않는 서비스는 절대 안내하지
+  마세요 (예: 성별이 "남"인 회원에게 임신·출산·산모 관련 서비스, 또는 그 반대의
+  경우를 추천하지 마세요). 검색 자료에 그런 서비스가 있어도 언급하지 마세요.
 - 서비스를 안내할 때는 "서비스명 (전국 대상 / 지역: OO) / 자격요건 / 신청방법 / 출처"
   형식으로, 전국 대상인지 특정 지역 대상인지를 서비스명 옆에 꼭 표시하세요.
 - 검색 자료로도 확실하지 않은 내용은 "확인 필요"라고 표시하세요.
@@ -101,14 +151,14 @@ def chat_turn(messages: list[dict], max_tool_rounds: int = 3) -> tuple[str, list
     messages: 지금까지의 전체 대화 (system, user, assistant, tool 메시지 포함)
     반환값: (최종 답변 텍스트, 이번 턴에서 새로 검색된 자료 목록, 갱신된 전체 대화)
     """
-    client = get_client()
+    client, model_name = get_client()
     working_messages = list(messages)
     all_search_results = []
 
     for _ in range(max_tool_rounds):
         try:
             response = client.chat.completions.create(
-                model=MODEL_NAME,
+                model=model_name,
                 messages=working_messages,
                 tools=SEARCH_TOOL,
                 temperature=0.3,
@@ -156,7 +206,7 @@ def chat_turn(messages: list[dict], max_tool_rounds: int = 3) -> tuple[str, list
 
     try:
         final_response = client.chat.completions.create(
-            model=MODEL_NAME, messages=working_messages, temperature=0.3,
+            model=model_name, messages=working_messages, temperature=0.3,
         )
     except Exception as e:
         raise AIRecommendError(f"AI 응답 생성 중 오류가 발생했습니다: {e}") from e
