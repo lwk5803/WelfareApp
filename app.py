@@ -135,6 +135,7 @@ def is_gender_appropriate(service: dict, gender: str) -> bool:
     return not any(keyword in life_array for keyword in mismatch_keywords)
 
 
+<<<<<<< HEAD
 def _life_stage_labels(age: int | None) -> list[str]:
     """나이를 정부 API의 생애주기(lifeArray) 텍스트 라벨과 대략 매칭합니다."""
     if age is None:
@@ -188,6 +189,8 @@ def relevance_score(service: dict, age: int | None, welfare_type: str) -> int:
     return 1 if any(label in target_array for label in _target_labels(welfare_type)) else 0
 
 
+=======
+>>>>>>> 67b0a7c47b78cc77f311af5fc21155672fdd4bff
 # ----------------------------------------------------------------------
 # 1) 회원 목록 - 조회 + 다운로드
 # ----------------------------------------------------------------------
@@ -897,6 +900,7 @@ elif menu == "추천 복지 서비스":
                     national_services = gov_welfare_api.fetch_welfare_list(
                         age=age, welfare_type=member["welfare_type"], num_of_rows=20
                     )
+<<<<<<< HEAD
                     # 성별·생애주기가 명백히 안 맞는 서비스는 필수 조건(하드 필터)으로 제외합니다.
                     national_services = [
                         s for s in national_services
@@ -908,6 +912,12 @@ elif menu == "추천 복지 서비스":
                     national_services.sort(
                         key=lambda s: relevance_score(s, age, member["welfare_type"]), reverse=True
                     )
+=======
+                    national_services = [
+                        s for s in national_services if is_gender_appropriate(s, member["gender"])
+                    ]
+                    st.caption(f"🔎 중앙부처 목록조회 결과: {len(national_services)}건 (성별 필터 적용 후)")
+>>>>>>> 67b0a7c47b78cc77f311af5fc21155672fdd4bff
                     for s in national_services[:5]:
                         try:
                             detail = gov_welfare_api.fetch_welfare_detail(s["servId"])
@@ -928,6 +938,7 @@ elif menu == "추천 복지 서비스":
                     st.warning(f"중앙부처 복지서비스 조회에 실패했습니다: {e}")
 
                 # ---- 2) 지자체(거주 지역) 서비스 ----
+<<<<<<< HEAD
                 # 주의: 나이·구분까지 함께 걸면 지자체 데이터셋에서는 결과가 0건이 되는 경우가
                 # 많아서(중앙부처보다 데이터 양이 적기 때문으로 보입니다), 서버 요청은 지역으로만
                 # 하고, 나이·구분·성별 반영은 아래에서 코드로 직접 처리합니다.
@@ -944,6 +955,44 @@ elif menu == "추천 복지 서비스":
                     local_services.sort(
                         key=lambda s: relevance_score(s, age, member["welfare_type"]), reverse=True
                     )
+=======
+                ctpv_nm, sgg_nm = welfare_search.extract_ctpv_sgg(member["address"] or "")
+                st.caption(f"🔎 지자체 검색 조건 — 시/도: '{ctpv_nm}', 시/군/구: '{sgg_nm}', 나이: {age}, 구분: {member['welfare_type']}")
+
+                # 진단용: 필터를 하나씩 완화하면서 어느 조건에서부터 결과가 나오는지 확인합니다.
+                # (원인 확인 후에는 이 블록 전체를 지우고, 실제로 쓸 필터 조합 하나만 남기면 됩니다.)
+                try:
+                    diag_region_only = gov_welfare_api.fetch_local_welfare_list(
+                        ctpv_nm=ctpv_nm, sgg_nm=sgg_nm, num_of_rows=20
+                    )
+                    st.caption(f"🔎 [진단] 지역만으로 검색: {len(diag_region_only)}건")
+                except gov_welfare_api.GovWelfareError as e:
+                    st.caption(f"🔎 [진단] 지역만 검색 실패: {e}")
+
+                try:
+                    diag_ctpv_only = gov_welfare_api.fetch_local_welfare_list(
+                        ctpv_nm=ctpv_nm, num_of_rows=20
+                    )
+                    st.caption(f"🔎 [진단] 시/도만으로 검색: {len(diag_ctpv_only)}건")
+                except gov_welfare_api.GovWelfareError as e:
+                    st.caption(f"🔎 [진단] 시/도만 검색 실패: {e}")
+
+                try:
+                    diag_no_filter = gov_welfare_api.fetch_local_welfare_list(num_of_rows=20)
+                    st.caption(f"🔎 [진단] 아무 조건 없이 검색: {len(diag_no_filter)}건")
+                except gov_welfare_api.GovWelfareError as e:
+                    st.caption(f"🔎 [진단] 무조건 검색 실패: {e}")
+
+                try:
+                    local_services = gov_welfare_api.fetch_local_welfare_list(
+                        ctpv_nm=ctpv_nm, sgg_nm=sgg_nm,
+                        age=age, welfare_type=member["welfare_type"], num_of_rows=20,
+                    )
+                    local_services = [
+                        s for s in local_services if is_gender_appropriate(s, member["gender"])
+                    ]
+                    st.caption(f"🔎 지자체 목록조회 결과: {len(local_services)}건 (성별 필터 적용 후)")
+>>>>>>> 67b0a7c47b78cc77f311af5fc21155672fdd4bff
                     for s in local_services[:5]:
                         try:
                             detail = gov_welfare_api.fetch_local_welfare_detail(s["servId"])
@@ -959,7 +1008,12 @@ elif menu == "추천 복지 서비스":
                                 "구분": f"지자체({ctpv_nm} {sgg_nm}) 대상",
                                 "주관기관": detail["jurMnofNm"],
                             })
+<<<<<<< HEAD
                         except gov_welfare_api.GovWelfareError:
+=======
+                        except gov_welfare_api.GovWelfareError as e:
+                            st.caption(f"🔎 지자체 상세조회 실패(서비스ID {s['servId']}): {e}")
+>>>>>>> 67b0a7c47b78cc77f311af5fc21155672fdd4bff
                             continue
                 except gov_welfare_api.GovWelfareError as e:
                     st.warning(f"지자체 복지서비스 조회에 실패했습니다: {e}")
