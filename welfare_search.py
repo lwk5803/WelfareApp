@@ -18,6 +18,11 @@ import streamlit as st
 
 API_URL = "https://api.tavily.com/search"
 
+# 같은 검색어로 다시 검색할 때 API를 재호출하지 않도록 캐싱하는 유효기간(초 단위).
+# 웹 검색 결과는 정부 공식 데이터보다는 자주 바뀔 수 있어서, gov_welfare_api.py의
+# 24시간보다 짧은 12시간으로 뒀습니다.
+CACHE_TTL_SECONDS = 60 * 60 * 12
+
 
 class WelfareSearchError(Exception):
     """복지서비스 검색 중 문제가 생겼을 때, 사용자에게 보여줄 친절한 메시지를 담는 예외입니다."""
@@ -49,6 +54,55 @@ def extract_region(address: str) -> str:
     return " ".join(parts[:2])
 
 
+# 정부 API는 "서울특별시", "부산광역시"처럼 정식 행정구역명을 기준으로 지역을 매칭합니다.
+# 실제 회원 주소는 "서울시", "부산시"처럼 일상적인 약칭으로 입력되는 경우가 흔해서,
+# 이 약칭들을 정식 명칭으로 바꿔주지 않으면 API가 그 지역을 못 찾아 결과가 0건이 됩니다.
+CTPV_NAME_ALIASES = {
+    "서울시": "서울특별시",
+    "부산시": "부산광역시",
+    "대구시": "대구광역시",
+    "인천시": "인천광역시",
+    "광주시": "광주광역시",
+    "대전시": "대전광역시",
+    "울산시": "울산광역시",
+    "세종시": "세종특별자치시",
+    "경기": "경기도",
+    "강원": "강원특별자치도",
+    "강원도": "강원특별자치도",
+    "충북": "충청북도",
+    "충남": "충청남도",
+    "전북": "전북특별자치도",
+    "전남": "전라남도",
+    "경북": "경상북도",
+    "경남": "경상남도",
+    "제주": "제주특별자치도",
+    "제주도": "제주특별자치도",
+}
+
+
+def normalize_ctpv_name(ctpv_nm: str) -> str:
+    """시/도 약칭을 정부 API가 인식하는 정식 행정구역명으로 바꿔줍니다."""
+    return CTPV_NAME_ALIASES.get(ctpv_nm, ctpv_nm)
+
+
+def extract_ctpv_sgg(address: str) -> tuple[str, str]:
+    """
+    주소 문자열에서 시/도와 시/군/구를 따로 분리해서 돌려줍니다.
+    지자체복지서비스 API가 이 둘을 별도의 파라미터(ctpvNm, sggNm)로 요구하기 때문입니다.
+    시/도는 API가 인식하는 정식 명칭으로 자동 변환합니다.
+
+    예: "서울특별시 강남구 테헤란로 123" -> ("서울특별시", "강남구")
+        "부산시 해운대구 센텀중앙로 45" -> ("부산광역시", "해운대구")  <- 약칭 자동 변환
+    """
+    if not address:
+        return "", ""
+    parts = address.strip().split()
+    ctpv_nm = normalize_ctpv_name(parts[0]) if len(parts) >= 1 else ""
+    sgg_nm = parts[1] if len(parts) >= 2 else ""
+    return ctpv_nm, sgg_nm
+
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
 def search_web(query: str, max_results: int = 5) -> list[dict]:
     """
     주어진 검색어로 웹을 검색합니다.

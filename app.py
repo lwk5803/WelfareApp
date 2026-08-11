@@ -20,7 +20,36 @@ import welfare_search
 import ai_recommend
 import gov_welfare_api
 
-st.set_page_config(page_title="복지관 회원 관리", layout="wide")
+st.set_page_config(page_title="복지관 회원 관리", page_icon="🤝", layout="wide")
+
+# .streamlit/config.toml의 [theme] 설정으로는 색상/폰트 정도만 바뀌고, 여백이나
+# 버튼 모서리처럼 세밀한 부분은 CSS를 직접 넣어야 합니다. 여기서 그 역할을 합니다.
+st.markdown(
+    """
+    <style>
+        /* 화면 상하 여백을 살짝 줄여서 내용이 더 꽉 차 보이게 */
+        .block-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }
+        /* 버튼 모서리를 둥글게, 글자를 조금 더 굵게 */
+        div.stButton > button, div.stDownloadButton > button {
+            border-radius: 8px;
+            font-weight: 600;
+        }
+        /* 사이드바에 옅은 경계선을 줘서 본문과 구분을 명확하게 */
+        section[data-testid="stSidebar"] {
+            border-right: 1px solid #E0E0E0;
+        }
+        /* 화면 우측 상단의 "Deploy" 버튼과 메뉴, 하단의 "Made with Streamlit" 문구를
+           내부 업무용 화면에서는 불필요하니 숨깁니다. */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header [data-testid="stToolbar"] {visibility: hidden;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # 테이블/전화번호 중복 방지 인덱스를 준비합니다. (화면에 별도 안내는 띄우지 않고,
 # 실제로 중복된 전화번호를 등록/수정하려는 시점에만 오류 메시지로 알려줍니다.)
@@ -91,6 +120,74 @@ def highlight_old_members(row: pd.Series) -> list[str]:
     return [""] * len(row)
 
 
+# 정부 복지서비스 API에는 "성별" 필터 파라미터가 없어서, 나이대만 맞으면
+# "임신·출산" 같은 생애주기(lifeArray) 카테고리 서비스가 성별과 무관하게 나올 수 있습니다.
+# AI에게 걸러내라고 맡기지 않고, 여기서 코드로 먼저 확실하게 제외합니다.
+GENDER_MISMATCH_KEYWORDS = {
+    "남": ["임신", "출산"],  # 남성 회원에게는 임신·출산 관련 서비스를 제외합니다.
+}
+
+
+def is_gender_appropriate(service: dict, gender: str) -> bool:
+    """서비스의 생애주기(lifeArray)가 회원의 성별과 명백히 안 맞는 경우 False를 돌려줍니다."""
+    life_array = service.get("lifeArray", "") or ""
+    mismatch_keywords = GENDER_MISMATCH_KEYWORDS.get(gender, [])
+    return not any(keyword in life_array for keyword in mismatch_keywords)
+
+
+def _life_stage_labels(age: int | None) -> list[str]:
+    """나이를 정부 API의 생애주기(lifeArray) 텍스트 라벨과 대략 매칭합니다."""
+    if age is None:
+        return []
+    if age <= 6:
+        return ["영유아"]
+    if age <= 12:
+        return ["아동"]
+    if age <= 18:
+        return ["청소년"]
+    if age <= 34:
+        return ["청년"]
+    if age <= 64:
+        return ["중장년"]
+    return ["노년"]
+
+
+def _target_labels(welfare_type: str) -> list[str]:
+    """회원 구분을 정부 API의 대상특성(trgterIndvdlArray) 텍스트 라벨과 대략 매칭합니다."""
+    mapping = {"차상위": ["저소득"], "수급자": ["저소득"]}
+    return mapping.get(welfare_type or "", [])
+
+
+def is_life_stage_appropriate(service: dict, age: int | None) -> bool:
+    """
+    서비스에 생애주기(lifeArray)가 명시되어 있는데, 회원의 나이대와 전혀 안 겹치면
+    False를 돌려줍니다 (예: "노년" 전용 서비스를 41세 회원에게 추천하지 않도록).
+    lifeArray 자체가 비어있으면(생애주기 제한이 없는 서비스로 보고) 통과시킵니다.
+
+    주의: 이건 relevance_score와 달리 "점수"가 아니라 "필수 조건"입니다. 대상특성
+    (저소득 등)이 아무리 잘 맞아도, 생애주기가 명백히 안 맞으면 통과하면 안 되기
+    때문에 별도의 하드 필터로 분리했습니다. (실제로 "노인맞춤 돌봄서비스"가 대상특성
+    "저소득"만으로 41세 수급자에게 잘못 추천된 사례를 겪고 나서 추가했습니다.)
+    """
+    life_array = service.get("lifeArray", "") or ""
+    if not life_array.strip():
+        return True
+    labels = _life_stage_labels(age)
+    if not labels:
+        return True
+    return any(label in life_array for label in labels)
+
+
+def relevance_score(service: dict, age: int | None, welfare_type: str) -> int:
+    """
+    (생애주기·성별 하드 필터를 이미 통과한 서비스들 중에서) 대상특성이 회원 구분과
+    얼마나 겹치는지로 순위를 매깁니다. API 응답 순서(임의) 그대로 앞 몇 개만 쓰지
+    않고, 조금이라도 더 관련 있어 보이는 것부터 고르기 위한 용도입니다.
+    """
+    target_array = service.get("trgterIndvdlArray", "") or ""
+    return 1 if any(label in target_array for label in _target_labels(welfare_type)) else 0
+
+
 # ----------------------------------------------------------------------
 # 1) 회원 목록 - 조회 + 다운로드
 # ----------------------------------------------------------------------
@@ -130,7 +227,6 @@ if menu == "회원 목록":
             )
 
             # 동의 관련 컬럼(consent_*)은 법적 확인 기록이라 일반 명단 다운로드에서는 제외합니다.
-            # 화면 표(display_df)와 마찬가지로, 여기서도 내보낼 컬럼을 명시적으로 골라줍니다.
             export_df = filtered_df[
                 ["id", "name", "gender", "birth_date", "address", "phone", "welfare_type", "note", "created_at"]
             ].rename(columns=COLUMN_LABELS)
@@ -162,8 +258,6 @@ elif menu == "회원 등록/수정/삭제":
         st.subheader("신규 회원 등록")
 
         # ---- 주소 검색 도우미 (폼 밖에 둡니다) ----
-        # 검색 → 결과 선택 → 아래 폼의 주소 입력창에 자동으로 채워지는 흐름입니다.
-        #
         # 이 입력창(주소)에는 일부러 key를 주지 않습니다. key가 있는 위젯은 한 번이라도
         # 값이 세팅되면 그 이후로 value= 파라미터를 무시하는데, 그 상태에서 버튼 클릭 시점에
         # session_state[key]를 직접 바꾸려고 하면 "이미 그려진 위젯은 못 바꾼다"는 에러가 납니다.
@@ -321,6 +415,7 @@ elif menu == "회원 등록/수정/삭제":
                         except db.DatabaseError as e:
                             st.error(str(e))
 
+        # 중복 의심 회원이 발견된 경우, 별도의 확인 절차를 보여줍니다.
         if "pending_client" in st.session_state:
             pending = st.session_state["pending_client"]
 
@@ -534,8 +629,6 @@ elif menu == "회원 등록/수정/삭제":
                 st.stop()
 
             if client is None:
-                # 다른 세션에서 방금 삭제됐거나 하는 등, 목록엔 있었지만 실제로는
-                # 이미 없는 회원일 수 있습니다. 이 경우 화면이 깨지지 않도록 방어합니다.
                 st.warning("선택하신 회원 정보를 찾을 수 없습니다. 목록이 방금 바뀌었을 수 있어요. 새로고침 후 다시 시도해주세요.")
                 st.stop()
 
@@ -595,6 +688,7 @@ elif menu == "회원 등록/수정/삭제":
                     except db.DatabaseError as e:
                         st.error(str(e))
 
+            # ---- 삭제 확인 ----
             st.divider()
             st.markdown("**회원 삭제**")
 
@@ -683,9 +777,9 @@ elif menu == "추천 복지 서비스":
     )
     st.warning(
         "⚠️ 이 기능은 회원의 나이·성별·구분·거주 지역과 비고 내용, 그리고 채팅으로 "
-        "입력하시는 내용을 외부 검색/AI 서비스(Tavily, OpenAI)로 전송합니다. "
-        "이름·전화번호·상세 주소는 자동 전송하지 않지만, 채팅창이나 비고란에 민감한 "
-        "내용을 직접 입력하시면 그대로 전송되니 유의해주세요."
+        "입력하시는 내용을 외부 검색/AI 서비스로 전송합니다. 이름·전화번호·상세 주소는 "
+        "자동 전송하지 않지만, 채팅창이나 비고란에 민감한 내용을 직접 입력하시면 그대로 "
+        "전송되니 유의해주세요."
     )
 
     try:
@@ -697,7 +791,7 @@ elif menu == "추천 복지 서비스":
     if df.empty:
         st.info("등록된 회원이 없습니다.")
     else:
-        # ---- 기능 1: 대상자 검색 ----
+        # ---- 대상자 검색 ----
         recommend_search_keyword = st.text_input(
             "이름으로 검색", placeholder="이름을 입력하세요 (전체를 보려면 비워두세요)", key="recommend_search"
         )
@@ -744,8 +838,7 @@ elif menu == "추천 복지 서비스":
             f"비고: {member['note'] or '없음'}"
         )
 
-        # ---- 기능 2: 챗봇 대화 ----
-        # 회원마다 대화 내용을 따로 기억하도록, session_state의 키에 회원 id를 포함시킵니다.
+        # ---- 회원별 대화 상태 관리 ----
         api_key_name = f"recommend_chat_api_{selected_id}"
         display_key_name = f"recommend_chat_display_{selected_id}"
 
@@ -766,6 +859,8 @@ elif menu == "추천 복지 서비스":
             if st.button("대화 초기화", use_container_width=True):
                 del st.session_state[api_key_name]
                 del st.session_state[display_key_name]
+                st.session_state.pop(f"recommend_sources_{selected_id}", None)
+                st.session_state.pop(f"recommend_gov_services_{selected_id}", None)
                 st.rerun()
 
         # 이미 나눈 대화를 화면에 그립니다.
@@ -793,34 +888,88 @@ elif menu == "추천 복지 서비스":
                 )
 
         if start_clicked:
-            gov_context = ""
+            detail_blocks = []
+            gov_service_summary = []  # 화면에 표로 보여줄, 코드에서 직접 만든 신뢰할 수 있는 구분 정보
+
             with st.spinner("공공데이터에서 관련 정부 복지서비스를 조회하는 중입니다..."):
+                # ---- 1) 중앙부처(전국민 대상) 서비스 ----
                 try:
-                    matched_services = gov_welfare_api.fetch_welfare_list(
+                    national_services = gov_welfare_api.fetch_welfare_list(
                         age=age, welfare_type=member["welfare_type"], num_of_rows=20
                     )
-
-                    detail_blocks = []
-                    for s in matched_services[:5]:  # 너무 많으면 비용/속도 부담이 커서 상위 5개만
+                    # 성별·생애주기가 명백히 안 맞는 서비스는 필수 조건(하드 필터)으로 제외합니다.
+                    national_services = [
+                        s for s in national_services
+                        if is_gender_appropriate(s, member["gender"])
+                        and is_life_stage_appropriate(s, age)
+                    ]
+                    # 나머지 후보 중에서는, API가 돌려준 순서(임의) 그대로 앞 5개를 쓰지 않고
+                    # 대상특성(저소득 등)이 회원 구분과 겹치는 것부터 우선순위로 정렬합니다.
+                    national_services.sort(
+                        key=lambda s: relevance_score(s, age, member["welfare_type"]), reverse=True
+                    )
+                    for s in national_services[:5]:
                         try:
                             detail = gov_welfare_api.fetch_welfare_detail(s["servId"])
                             detail_blocks.append(
                                 f"[정부 공식 서비스 - 전국민 대상] {detail['servNm']} (주관: {detail['jurMnofNm']})\n"
-                                f"개요: {detail['outline']}\n"
-                                f"지원대상: {detail['target']}\n"
-                                f"선정기준: {detail['criteria']}\n"
-                                f"지원내용: {detail['benefit']}\n"
+                                f"개요: {detail['outline']}\n지원대상: {detail['target']}\n"
+                                f"선정기준: {detail['criteria']}\n지원내용: {detail['benefit']}\n"
                                 f"신청방법: {'; '.join(detail['apply_methods']) or '확인 필요'}"
                             )
+                            gov_service_summary.append({
+                                "서비스명": detail["servNm"],
+                                "구분": "전국민 대상",
+                                "주관기관": detail["jurMnofNm"],
+                            })
                         except gov_welfare_api.GovWelfareError:
-                            continue  # 한 건 상세조회가 실패해도 나머지는 계속 진행합니다.
-
-                    gov_context = "\n\n".join(detail_blocks)
+                            continue
                 except gov_welfare_api.GovWelfareError as e:
-                    st.warning(f"공공데이터 복지서비스 조회에 실패했습니다: {e} (웹 검색 결과만으로 진행합니다)")
+                    st.warning(f"중앙부처 복지서비스 조회에 실패했습니다: {e}")
+
+                # ---- 2) 지자체(거주 지역) 서비스 ----
+                # 주의: 나이·구분까지 함께 걸면 지자체 데이터셋에서는 결과가 0건이 되는 경우가
+                # 많아서(중앙부처보다 데이터 양이 적기 때문으로 보입니다), 서버 요청은 지역으로만
+                # 하고, 나이·구분·성별 반영은 아래에서 코드로 직접 처리합니다.
+                ctpv_nm, sgg_nm = welfare_search.extract_ctpv_sgg(member["address"] or "")
+                try:
+                    local_services = gov_welfare_api.fetch_local_welfare_list(
+                        ctpv_nm=ctpv_nm, sgg_nm=sgg_nm, num_of_rows=20,
+                    )
+                    local_services = [
+                        s for s in local_services
+                        if is_gender_appropriate(s, member["gender"])
+                        and is_life_stage_appropriate(s, age)
+                    ]
+                    local_services.sort(
+                        key=lambda s: relevance_score(s, age, member["welfare_type"]), reverse=True
+                    )
+                    for s in local_services[:5]:
+                        try:
+                            detail = gov_welfare_api.fetch_local_welfare_detail(s["servId"])
+                            detail_blocks.append(
+                                f"[정부 공식 서비스 - 지자체({ctpv_nm} {sgg_nm}) 대상] "
+                                f"{detail['servNm']} (주관: {detail['jurMnofNm']})\n"
+                                f"개요: {detail['outline']}\n지원대상: {detail['target']}\n"
+                                f"선정기준: {detail['criteria']}\n지원내용: {detail['benefit']}\n"
+                                f"신청방법: {'; '.join(detail['apply_methods']) or '확인 필요'}"
+                            )
+                            gov_service_summary.append({
+                                "서비스명": detail["servNm"],
+                                "구분": f"지자체({ctpv_nm} {sgg_nm}) 대상",
+                                "주관기관": detail["jurMnofNm"],
+                            })
+                        except gov_welfare_api.GovWelfareError:
+                            continue
+                except gov_welfare_api.GovWelfareError as e:
+                    st.warning(f"지자체 복지서비스 조회에 실패했습니다: {e}")
+
+            gov_context = "\n\n".join(detail_blocks)
+            if gov_service_summary:
+                st.session_state[f"recommend_gov_services_{selected_id}"] = gov_service_summary
 
             initial_message = (
-                "다음은 정부 공공데이터(중앙부처 복지서비스)에서 이 회원님과 관련성이 높아 "
+                "다음은 정부 공공데이터(중앙부처·지자체 복지서비스)에서 이 회원님과 관련성이 높아 "
                 "보이는 서비스입니다:\n\n"
                 f"{gov_context or '(조건에 맞는 정부 공식 서비스를 찾지 못했습니다.)'}\n\n"
                 "위 자료와, 필요하다면 추가 웹 검색을 통해 이 회원님께 맞는 복지서비스와 "
@@ -837,8 +986,17 @@ elif menu == "추천 복지 서비스":
                 _run_chat_turn(user_question)
             st.rerun()
 
+        # ---- 공식 조회된 정부 복지서비스 표 (전국민/지자체 구분을 코드에서 확실히 표시) ----
+        if st.session_state.get(f"recommend_gov_services_{selected_id}"):
+            st.markdown("**공식 조회된 정부 복지서비스**")
+            st.dataframe(
+                pd.DataFrame(st.session_state[f"recommend_gov_services_{selected_id}"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
         if st.session_state.get(f"recommend_sources_{selected_id}"):
-            with st.expander("참고한 검색 자료"):
+            with st.expander("참고한 검색 자료 (웹 검색)"):
                 for r in st.session_state[f"recommend_sources_{selected_id}"]:
                     st.markdown(f"- [{r['title']}]({r['url']})")
 
