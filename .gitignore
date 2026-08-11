@@ -9,3 +9,8 @@
 
 # .gitignore 자체 허용
 !.gitignore
+
+# README 허용
+!README.md
+
+.env
