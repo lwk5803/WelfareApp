@@ -54,8 +54,19 @@ class ClientCreate(BaseModel):
 @app.post("/api/clients")
 def create_client(client: ClientCreate):
     try:
-        db.add_client(**client.dict())
-        return {"message": f"'{client.name}' 님을 등록했습니다."}
+        data = client.dict()
+        data["birth_date"], birth_ok = parsers.parse_birth_date(data["birth_date"]) if data["birth_date"] else ("", True)
+        data["phone"], phone_ok = parsers.parse_phone(data["phone"]) if data["phone"] else ("", True)
+        db.add_client(**data)
+        warnings = []
+        if not birth_ok:
+            warnings.append(f"생년월일 '{data['birth_date']}'을(를) 인식하지 못해 원본 그대로 저장했습니다.")
+        if not phone_ok:
+            warnings.append(f"전화번호 '{data['phone']}'을(를) 인식하지 못해 원본 그대로 저장했습니다.")
+        message = f"'{client.name}' 님을 등록했습니다."
+        if warnings:
+            message += " (" + " ".join(warnings) + ")"
+        return {"message": message}
     except db.DatabaseError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -71,8 +82,19 @@ class ClientUpdate(BaseModel):
 @app.put("/api/clients/{client_id}")
 def update_client(client_id: int, client: ClientUpdate):
     try:
-        db.update_client(client_id, **client.dict())
-        return {"message": "회원 정보를 수정했습니다."}
+        data = client.dict()
+        data["birth_date"], birth_ok = parsers.parse_birth_date(data["birth_date"]) if data["birth_date"] else ("", True)
+        data["phone"], phone_ok = parsers.parse_phone(data["phone"]) if data["phone"] else ("", True)
+        db.update_client(client_id, **data)
+        warnings = []
+        if not birth_ok:
+            warnings.append(f"생년월일 '{data['birth_date']}'을(를) 인식하지 못해 원본 그대로 저장했습니다.")
+        if not phone_ok:
+            warnings.append(f"전화번호 '{data['phone']}'을(를) 인식하지 못해 원본 그대로 저장했습니다.")
+        message = "회원 정보를 수정했습니다."
+        if warnings:
+            message += " (" + " ".join(warnings) + ")"
+        return {"message": message}
     except db.DatabaseError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -152,6 +174,7 @@ def fetch_initial_recommendations(client_id: int):
         detail_blocks = []
         reference_lines = []
         gov_service_summary = []
+        gov_data_warnings = []
 
         def _dedup_by_id(services: list[dict]) -> list[dict]:
             seen, result = set(), []
@@ -184,8 +207,10 @@ def fetch_initial_recommendations(client_id: int):
                 gov_service_summary.append({"서비스명": d["servNm"], "구분": "전국민 대상", "주관기관": d["jurMnofNm"]})
             for s in nat_special[:5]:
                 reference_lines.append(f"{s['servNm']} - {s['_special_reason']} 자격이 있는 경우에만 해당")
-        except Exception:
-            pass
+        except gov_welfare_api.GovWelfareError as e:
+            gov_data_warnings.append(f"중앙부처 복지서비스 조회 실패: {e}")
+        except Exception as e:
+            gov_data_warnings.append(f"중앙부처 복지서비스 조회 중 예상치 못한 오류가 발생했습니다: {e}")
 
         # 지자체 서비스 조회 (기본 + 비고 키워드)
         ctpv_nm, sgg_nm = welfare_search.extract_ctpv_sgg(address)
@@ -211,8 +236,10 @@ def fetch_initial_recommendations(client_id: int):
                 gov_service_summary.append({"서비스명": d["servNm"], "구분": f"지자체({ctpv_nm} {sgg_nm}) 대상", "주관기관": d["jurMnofNm"]})
             for s in loc_special[:5]:
                 reference_lines.append(f"{s['servNm']} - {s['_special_reason']} 자격이 있는 경우에만 해당")
-        except Exception:
-            pass
+        except gov_welfare_api.GovWelfareError as e:
+            gov_data_warnings.append(f"지자체 복지서비스 조회 실패: {e}")
+        except Exception as e:
+            gov_data_warnings.append(f"지자체 복지서비스 조회 중 예상치 못한 오류가 발생했습니다: {e}")
 
         profile_summary = (
             f"나이: {age if age is not None else '미상'}세\n"
@@ -249,7 +276,8 @@ def fetch_initial_recommendations(client_id: int):
             "answer": answer,
             "gov_services": gov_service_summary,
             "sources": new_results,
-            "updated_messages": updated_messages
+            "updated_messages": updated_messages,
+            "warnings": gov_data_warnings,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

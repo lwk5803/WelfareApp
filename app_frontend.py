@@ -319,11 +319,13 @@ elif menu == "추천 복지 서비스":
             chat_state_key = f"chat_messages_{sel_id}"
             gov_state_key = f"gov_services_{sel_id}"
             sources_state_key = f"sources_{sel_id}"
-            
+            warnings_state_key = f"gov_warnings_{sel_id}"
+
             if chat_state_key not in st.session_state:
                 st.session_state[chat_state_key] = []
                 st.session_state[gov_state_key] = []
                 st.session_state[sources_state_key] = []
+                st.session_state[warnings_state_key] = []
                 
             if not st.session_state[chat_state_key]:
                 if st.button("복지서비스 검색 및 추천 받기", use_container_width=True):
@@ -334,13 +336,20 @@ elif menu == "추천 복지 서비스":
                             st.session_state[chat_state_key] = data["updated_messages"]
                             st.session_state[gov_state_key] = data["gov_services"]
                             st.session_state[sources_state_key] = data["sources"]
+                            st.session_state[warnings_state_key] = data.get("warnings", [])
                             st.rerun()
             else:
                 if st.button("대화 초기화", use_container_width=True):
                     st.session_state[chat_state_key] = []
                     st.session_state[gov_state_key] = []
                     st.session_state[sources_state_key] = []
+                    st.session_state[warnings_state_key] = []
                     st.rerun()
+
+            # 정부 공공데이터 조회 중 일부가 실패했다면(예: 일일 요청 한도 초과),
+            # 조용히 넘어가지 않고 담당자가 원인을 알 수 있도록 경고로 보여줍니다.
+            for w in st.session_state.get(warnings_state_key, []):
+                st.warning(f"⚠️ {w}")
                     
             # 채팅 화면 출력 (system/tool 메시지, 그리고 맨 처음 자동 생성되는
             # "다음은 정부 공공데이터에서..." 원본 컨텍스트 메시지는 숨깁니다.

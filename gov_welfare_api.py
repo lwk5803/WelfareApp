@@ -85,14 +85,35 @@ def _request_xml(url: str, params: dict) -> ET.Element:
     """공통 요청 처리: GET 요청 → XML 파싱 → resultCode 확인까지 한 번에 처리합니다."""
     try:
         response = requests.get(url, params=params, timeout=15)
-        response.raise_for_status()
     except requests.RequestException as e:
+        # 요청 자체가 안 나간 경우(DNS 실패, 타임아웃, 연결 거부 등)만 진짜 "연결 문제"입니다.
         raise GovWelfareError("공공데이터 API에 연결할 수 없습니다. 인터넷 연결을 확인해주세요.") from e
 
     try:
         root = ET.fromstring(response.content)
     except ET.ParseError as e:
+        # HTTP 상태코드가 에러인데 본문이 XML도 아니면(예: 502 HTML 에러 페이지),
+        # 굳이 "인증키를 확인해달라"고 하지 않고 상태코드를 그대로 알려줍니다.
+        if not response.ok:
+            raise GovWelfareError(
+                f"공공데이터 API 서버 오류(HTTP {response.status_code})가 발생했습니다. 잠시 후 다시 시도해주세요."
+            ) from e
         raise GovWelfareError("공공데이터 API 응답(XML)을 해석하지 못했습니다. 인증키를 확인해주세요.") from e
+
+    # data.go.kr 공통 오류 포맷: <OpenAPI_ServiceResponse><cmmMsgHeader>...</cmmMsgHeader></...>
+    # (요청 한도 초과, 잘못된 서비스키 등 "게이트웨이 단"에서 막힐 때 이 형태로 옵니다.
+    #  서비스 자체의 resultCode 포맷과는 다른, 더 앞단의 오류 응답입니다.)
+    cmm_header = root if root.tag == "cmmMsgHeader" else root.find("cmmMsgHeader")
+    if cmm_header is not None:
+        reason_code = _text(cmm_header, "returnReasonCode")
+        raw_msg = _text(cmm_header, "returnAuthMsg") or _text(cmm_header, "errMsg") or "알 수 없는 오류"
+        friendly = ERROR_MESSAGES.get(reason_code, raw_msg)
+        raise GovWelfareError(f"공공데이터 API 오류({reason_code or '?'}): {friendly}")
+
+    if not response.ok:
+        raise GovWelfareError(
+            f"공공데이터 API 서버 오류(HTTP {response.status_code})가 발생했습니다. 잠시 후 다시 시도해주세요."
+        )
 
     result_code = _text(root, "resultCode")
 
