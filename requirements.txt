@@ -4,3 +4,8 @@ openpyxl
 jinja2
 requests
 openai
+
+fastapi
+uvicorn[standard]
+supabase
+pydantic

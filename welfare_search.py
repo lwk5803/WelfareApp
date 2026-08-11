@@ -54,7 +54,6 @@ def extract_region(address: str) -> str:
     return " ".join(parts[:2])
 
 
-<<<<<<< HEAD
 # 정부 API는 "서울특별시", "부산광역시"처럼 정식 행정구역명을 기준으로 지역을 매칭합니다.
 # 실제 회원 주소는 "서울시", "부산시"처럼 일상적인 약칭으로 입력되는 경우가 흔해서,
 # 이 약칭들을 정식 명칭으로 바꿔주지 않으면 API가 그 지역을 못 찾아 결과가 0건이 됩니다.
@@ -86,29 +85,19 @@ def normalize_ctpv_name(ctpv_nm: str) -> str:
     return CTPV_NAME_ALIASES.get(ctpv_nm, ctpv_nm)
 
 
-=======
->>>>>>> 67b0a7c47b78cc77f311af5fc21155672fdd4bff
 def extract_ctpv_sgg(address: str) -> tuple[str, str]:
     """
     주소 문자열에서 시/도와 시/군/구를 따로 분리해서 돌려줍니다.
     지자체복지서비스 API가 이 둘을 별도의 파라미터(ctpvNm, sggNm)로 요구하기 때문입니다.
-<<<<<<< HEAD
     시/도는 API가 인식하는 정식 명칭으로 자동 변환합니다.
 
     예: "서울특별시 강남구 테헤란로 123" -> ("서울특별시", "강남구")
         "부산시 해운대구 센텀중앙로 45" -> ("부산광역시", "해운대구")  <- 약칭 자동 변환
-=======
-    예: "서울특별시 강남구 테헤란로 123" -> ("서울특별시", "강남구")
->>>>>>> 67b0a7c47b78cc77f311af5fc21155672fdd4bff
     """
     if not address:
         return "", ""
     parts = address.strip().split()
-<<<<<<< HEAD
     ctpv_nm = normalize_ctpv_name(parts[0]) if len(parts) >= 1 else ""
-=======
-    ctpv_nm = parts[0] if len(parts) >= 1 else ""
->>>>>>> 67b0a7c47b78cc77f311af5fc21155672fdd4bff
     sgg_nm = parts[1] if len(parts) >= 2 else ""
     return ctpv_nm, sgg_nm
 
