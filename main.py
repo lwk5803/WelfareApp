@@ -1,8 +1,6 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-import pandas as pd
-import json
 
 import supabase_db as db
 import stats
@@ -10,7 +8,6 @@ import address_api
 import welfare_search
 import ai_recommend
 import gov_welfare_api
-import excel_import
 import parsers
 
 app = FastAPI(title="복지관 회원 관리 통합 API")

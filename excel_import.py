@@ -5,7 +5,7 @@ excel_import.py
 (성명, 성별, 생년월일, 주소, 전화번호, 회원 구분, 비고)로 정리하는 함수들을 모아둔 파일입니다.
 
 이 파일 자체는 화면(Streamlit)을 몰라도 되게, "엑셀 읽기"와 "한 행 정리하기"만 담당합니다.
-실제로 업로드 UI를 그리고 db.add_client를 반복 호출하는 건 app.py가 합니다.
+실제로 업로드 UI를 그리고 db.add_client를 반복 호출하는 건 app_frontend.py가 합니다.
 """
 
 import pandas as pd

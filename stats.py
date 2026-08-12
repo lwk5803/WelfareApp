@@ -2,10 +2,10 @@
 stats.py
 --------
 회원 데이터를 바탕으로 통계를 계산하는 함수들을 모아둔 파일입니다.
-database.py(저장), parsers.py(입력 정리)와 마찬가지로,
+supabase_db.py(저장), parsers.py(입력 정리)와 마찬가지로,
 "통계 계산" 역할만 따로 떼어내서 이 파일에 모아뒀습니다.
 
-app.py는 이 파일의 함수들이 돌려주는 결과(pandas Series)를
+app_frontend.py는 이 파일의 함수들이 돌려주는 결과(pandas Series)를
 st.bar_chart 등으로 화면에 그리기만 하면 됩니다.
 """
 
