@@ -98,18 +98,28 @@ elif menu == "회원 등록/수정/삭제":
             phone = st.text_input("전화번호 (010-0000-0000)")
             welfare_type = st.selectbox("회원 구분", ["일반", "차상위", "수급자"])
             note = st.text_area("비고")
-            
+
+            st.markdown("**개인정보 수집 및 이용 동의**")
+            consent_personal = st.checkbox("개인정보(성명, 생년월일, 연락처, 주소 등) 수집·이용에 동의합니다. (필수)")
+            consent_sensitive = st.checkbox("건강상태 등 민감정보 수집·이용에 동의합니다. (필수)")
+            consent_third_party = st.checkbox("복지서비스 연계를 위한 관계기관 제3자 제공에 동의합니다. (필수)")
+            consent_portrait = st.checkbox("사진·영상 촬영 및 활용(초상권)에 동의합니다. (선택)")
+
             submitted = st.form_submit_button("등록하기", use_container_width=True)
-            
+
         if submitted:
             if not name.strip():
                 st.error("성명은 필수입니다.")
+            elif not (consent_personal and consent_sensitive and consent_third_party):
+                st.error("필수 동의 항목(개인정보 / 민감정보 / 제3자 제공)에 모두 동의해야 등록할 수 있습니다.")
             else:
                 payload = {
                     "name": name.strip(), "gender": gender, "birth_date": birth_date,
                     "address": address, "phone": phone, "welfare_type": welfare_type, "note": note,
-                    "consent_personal": "동의함", "consent_sensitive": "동의함",
-                    "consent_third_party": "동의함", "consent_portrait": "동의함"
+                    "consent_personal": "동의함" if consent_personal else "동의안함",
+                    "consent_sensitive": "동의함" if consent_sensitive else "동의안함",
+                    "consent_third_party": "동의함" if consent_third_party else "동의안함",
+                    "consent_portrait": "동의함" if consent_portrait else "동의안함",
                 }
                 res = requests.post(f"{API_BASE}/clients", json=payload)
                 if res.status_code == 200:
@@ -236,9 +246,16 @@ elif menu == "회원 등록/수정/삭제":
                             label, excel_columns, index=_guess_index(field), key=f"map_{field}"
                         )
 
+                bulk_consent = st.checkbox(
+                    "업로드하는 명단에 있는 회원 전원에 대해 개인정보·민감정보 수집·이용 및 "
+                    "제3자 제공 동의를 이미 서면 등으로 받았음을 확인합니다. (필수)"
+                )
+
                 if st.button("일괄 등록 실행", use_container_width=True, type="primary"):
                     if mapping["name"] == "(사용 안 함)":
                         st.error("성명 컬럼은 반드시 매칭해야 합니다.")
+                    elif not bulk_consent:
+                        st.error("위 동의 확인 체크박스를 선택해야 일괄 등록을 실행할 수 있습니다.")
                     else:
                         success, skipped, failed = 0, [], []
                         progress = st.progress(0.0)
@@ -258,7 +275,7 @@ elif menu == "회원 등록/수정/삭제":
                             payload = {
                                 **normalized,
                                 "consent_personal": "동의함", "consent_sensitive": "동의함",
-                                "consent_third_party": "동의함", "consent_portrait": "동의함",
+                                "consent_third_party": "동의함", "consent_portrait": "동의안함",
                             }
                             res = requests.post(f"{API_BASE}/clients", json=payload)
                             if res.status_code == 200:

@@ -384,11 +384,14 @@ def fetch_local_welfare_detail(serv_id: str) -> dict:
     """
     특정 지자체 서비스(serv_id)의 상세 정보를 가져옵니다.
 
-    주의: 이 API의 상세조회 응답 필드명은 활용가이드 문서로 확인하지 못해서,
-    중앙부처복지서비스 API와 같은 제공기관(한국사회보장정보원)이 같은 복지로 데이터를
-    쓴다는 점에 근거해 동일한 필드명(tgtrDtlCn, slctCritCn 등)을 그대로 사용했습니다.
-    실제 응답과 다르면 _text()가 빈 문자열을 돌려줄 뿐 에러는 안 나지만, 내용이
-    비어있는 채로 나온다면 이 부분을 실제 응답 기준으로 다시 확인해야 합니다.
+    주의: 실제 응답을 직접 호출해 확인한 결과, 이 API는 중앙부처복지서비스 API와
+    필드명이 다릅니다 (같은 제공기관이어도 데이터셋마다 스키마가 다를 수 있다는 걸
+    실제로 겪고 나서 바로잡았습니다):
+        - 주관기관: jurMnofNm(X) -> bizChrDeptNm(O)
+        - 개요: wlfareInfoOutlCn(X, 아예 없는 태그) -> servDgst(O)
+        - 대상: tgtrDtlCn(X) -> sprtTrgtCn(O)
+        - 신청방법: applmetList 반복 구조(X, 아예 없는 태그) -> aplyMtdCn 텍스트 하나(O)
+        - criteria(slctCritCn), benefit(alwServCn)은 중앙부처 API와 필드명이 동일합니다.
     """
     api_key = _get_api_key()
     params = {
@@ -398,18 +401,16 @@ def fetch_local_welfare_detail(serv_id: str) -> dict:
     root = _request_xml(LOCAL_DETAIL_URL, params)
 
     apply_methods = []
-    for item in root.findall("applmetList"):
-        name = _text(item, "servSeDetailNm")
-        link = _text(item, "servSeDetailLink")
-        if name or link:
-            apply_methods.append(f"{name}: {link}" if name else link)
+    aply_mtd_cn = _text(root, "aplyMtdCn")
+    if aply_mtd_cn:
+        apply_methods.append(aply_mtd_cn)
 
     return {
         "servId": _text(root, "servId"),
         "servNm": _text(root, "servNm"),
-        "jurMnofNm": _text(root, "jurMnofNm"),
-        "outline": _text(root, "wlfareInfoOutlCn"),
-        "target": _text(root, "tgtrDtlCn"),
+        "jurMnofNm": _text(root, "bizChrDeptNm"),
+        "outline": _text(root, "servDgst"),
+        "target": _text(root, "sprtTrgtCn"),
         "criteria": _text(root, "slctCritCn"),
         "benefit": _text(root, "alwServCn"),
         "apply_methods": apply_methods,
