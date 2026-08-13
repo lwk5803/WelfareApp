@@ -1,4 +1,5 @@
 import datetime
+import time
 
 import extra_streamlit_components as stx
 import streamlit as st
@@ -545,22 +546,41 @@ elif menu == "추천 복지 서비스":
                 st.session_state[warnings_state_key] = []
                 
             if not st.session_state[chat_state_key]:
-                if st.button("복지서비스 검색 및 추천 받기", use_container_width=True):
-                    with st.spinner("공공데이터 및 AI 분석 중..."):
-                        init_res = requests.post(f"{API_BASE}/recommend/fetch_initial", params={"client_id": sel_id})
-                        data = handle_response(init_res)
-                        if data:
-                            st.session_state[chat_state_key] = data["updated_messages"]
-                            st.session_state[gov_state_key] = data["gov_services"]
-                            st.session_state[sources_state_key] = data["sources"]
-                            st.session_state[warnings_state_key] = data.get("warnings", [])
-                            st.rerun()
+                # 조회는 서버(백그라운드 스레드)에서 진행되고, 여기서는 그 상태를 확인만
+                # 합니다. 그래서 조회 도중 다른 메뉴로 이동했다가 돌아와도 이어서
+                # 진행 상황을 확인할 수 있습니다 - 화면을 벗어나도 서버 쪽 작업 자체는
+                # 끊기지 않습니다.
+                status_res = requests.get(f"{API_BASE}/recommend/status/{sel_id}", headers=AUTH_HEADERS)
+                status_data = handle_response(status_res) or {"status": "none"}
+                job_status = status_data.get("status", "none")
+
+                if job_status == "none":
+                    if st.button("복지서비스 검색 및 추천 받기", use_container_width=True):
+                        requests.post(f"{API_BASE}/recommend/start", params={"client_id": sel_id}, headers=AUTH_HEADERS)
+                        st.rerun()
+                elif job_status == "running":
+                    st.info("🔄 공공데이터 및 AI 분석 중입니다. 다른 메뉴로 이동해도 조회는 계속 진행되니, 나중에 다시 들어와 확인해도 됩니다.")
+                    time.sleep(2)
+                    st.rerun()
+                elif job_status == "error":
+                    st.error(f"추천 조회 중 오류가 발생했습니다: {status_data.get('detail', '알 수 없는 오류')}")
+                    if st.button("다시 시도", use_container_width=True):
+                        requests.post(f"{API_BASE}/recommend/start", params={"client_id": sel_id}, headers=AUTH_HEADERS)
+                        st.rerun()
+                elif job_status == "done":
+                    data = status_data["result"]
+                    st.session_state[chat_state_key] = data["updated_messages"]
+                    st.session_state[gov_state_key] = data["gov_services"]
+                    st.session_state[sources_state_key] = data["sources"]
+                    st.session_state[warnings_state_key] = data.get("warnings", [])
+                    st.rerun()
             else:
-                if st.button("대화 초기화", use_container_width=True):
+                if st.button("대화 초기화 (새로 검색)", use_container_width=True):
                     st.session_state[chat_state_key] = []
                     st.session_state[gov_state_key] = []
                     st.session_state[sources_state_key] = []
                     st.session_state[warnings_state_key] = []
+                    requests.post(f"{API_BASE}/recommend/start", params={"client_id": sel_id}, headers=AUTH_HEADERS)
                     st.rerun()
 
             # 정부 공공데이터 조회 중 일부가 실패했다면(예: 일일 요청 한도 초과),
@@ -596,7 +616,7 @@ elif menu == "추천 복지 서비스":
                 st.session_state[chat_state_key].append({"role": "user", "content": user_q})
                 with st.spinner("AI가 답변을 준비 중입니다..."):
                     turn_payload = {"client_id": sel_id, "messages": st.session_state[chat_state_key]}
-                    turn_res = requests.post(f"{API_BASE}/recommend/chat_turn", json=turn_payload)
+                    turn_res = requests.post(f"{API_BASE}/recommend/chat_turn", json=turn_payload, headers=AUTH_HEADERS)
                     turn_data = handle_response(turn_res)
                     if turn_data:
                         st.session_state[chat_state_key] = turn_data["updated_messages"]
