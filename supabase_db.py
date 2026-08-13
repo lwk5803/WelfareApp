@@ -10,7 +10,6 @@ Supabase 접속 정보는 .streamlit/secrets.toml의 SUPABASE_URL / SUPABASE_SEC
 """
 
 from datetime import datetime, timezone
-from functools import lru_cache
 
 import pandas as pd
 import streamlit as st
@@ -18,10 +17,11 @@ from postgrest.exceptions import APIError
 from supabase import create_client, Client
 
 CLIENT_COLUMNS = [
-    "id", "name", "gender", "birth_date", "address",
+    "id", "member_no", "name", "gender", "birth_date", "address",
     "phone", "welfare_type", "note", "created_at",
+    "household_types", "has_disability", "disability_type",
     "consent_personal", "consent_sensitive", "consent_third_party", "consent_portrait",
-    "consent_signed_at",
+    "consent_signed_at", "deleted_at",
 ]
 
 
@@ -30,9 +30,14 @@ class DatabaseError(Exception):
     pass
 
 
-@lru_cache
 def _supabase() -> Client:
-    """Supabase 클라이언트를 생성해서 재사용합니다."""
+    """
+    요청마다 새 Supabase 클라이언트를 만듭니다. 예전엔 서버 전체에서 클라이언트
+    하나를 계속 재사용했는데(@lru_cache), FastAPI가 요청을 여러 스레드에서
+    동시에 처리하다 보니 그 공유 클라이언트의 내부 연결 상태가 꼬여서 조회는
+    빈 목록을, 등록은 알 수 없는 오류를 돌려주는 문제가 있었습니다. 매번 새로
+    만들면 이 문제가 사라집니다 - 이 앱 규모(직원 몇 명)에서는 성능 손해도 미미합니다.
+    """
     try:
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_SECRET_KEY"]
@@ -42,6 +47,11 @@ def _supabase() -> Client:
             "SUPABASE_URL / SUPABASE_SECRET_KEY를 추가해주세요."
         ) from e
     return create_client(url, key)
+
+
+def get_supabase_client() -> Client:
+    """auth.py 등 다른 모듈에서도 같은 Supabase 클라이언트를 재사용할 수 있게 공개합니다."""
+    return _supabase()
 
 
 def init_db() -> bool:
@@ -60,25 +70,32 @@ def init_db() -> bool:
 
 
 def get_all_clients() -> pd.DataFrame:
-    """모든 회원 정보를 pandas DataFrame으로 가져옵니다."""
+    """탈퇴(소프트 삭제) 처리되지 않은 회원 정보를 pandas DataFrame으로 가져옵니다."""
     try:
-        res = _supabase().table("clients").select("*").order("id", desc=True).execute()
+        res = (
+            _supabase().table("clients").select("*")
+            .is_("deleted_at", "null").order("id", desc=True).execute()
+        )
     except APIError as e:
         raise DatabaseError("회원 목록을 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.") from e
     return pd.DataFrame(res.data, columns=CLIENT_COLUMNS if not res.data else None)
 
 
 def get_client(client_id: int) -> dict | None:
-    """특정 id의 회원 정보를 한 건 가져옵니다."""
+    """특정 id의 회원 정보를 한 건 가져옵니다 (탈퇴 처리된 회원은 제외)."""
     try:
-        res = _supabase().table("clients").select("*").eq("id", client_id).execute()
+        res = _supabase().table("clients").select("*").eq("id", client_id).is_("deleted_at", "null").execute()
     except APIError as e:
         raise DatabaseError("회원 정보를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.") from e
     return res.data[0] if res.data else None
 
 
 def find_duplicates(name: str, birth_date: str, phone: str, exclude_id: int | None = None) -> pd.DataFrame:
-    """이름+생년월일이 같거나, 전화번호가 같은 기존 회원을 찾습니다."""
+    """
+    이름+생년월일이 같거나, 전화번호가 같은 회원을 찾습니다. 탈퇴(소프트 삭제) 처리된
+    회원도 포함해서 찾습니다 - 예전에 다녔다가 다시 등록하러 온 회원을 알아보거나,
+    이미 등록된 회원을 중복 등록하지 않도록 막는 데 씁니다.
+    """
     try:
         query = _supabase().table("clients").select("*")
         conditions = []
@@ -99,6 +116,7 @@ def find_duplicates(name: str, birth_date: str, phone: str, exclude_id: int | No
 
 def add_client(
     name, gender, birth_date, address, phone, welfare_type, note,
+    household_types, has_disability, disability_type,
     consent_personal, consent_sensitive, consent_third_party, consent_portrait,
 ):
     """새 회원을 등록합니다. consent_signed_at은 현재 시각으로 자동 기록합니다."""
@@ -106,6 +124,8 @@ def add_client(
     payload = {
         "name": name, "gender": gender, "birth_date": birth_date, "address": address,
         "phone": phone, "welfare_type": welfare_type, "note": note, "created_at": now,
+        "household_types": household_types, "has_disability": has_disability,
+        "disability_type": disability_type,
         "consent_personal": consent_personal, "consent_sensitive": consent_sensitive,
         "consent_third_party": consent_third_party, "consent_portrait": consent_portrait,
         "consent_signed_at": now,
@@ -118,11 +138,16 @@ def add_client(
         raise DatabaseError("회원 등록 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.") from e
 
 
-def update_client(client_id, name, gender, birth_date, address, phone, welfare_type, note):
+def update_client(
+    client_id, name, gender, birth_date, address, phone, welfare_type, note,
+    household_types, has_disability, disability_type,
+):
     """기존 회원 정보를 수정합니다 (동의 항목은 건드리지 않습니다)."""
     payload = {
         "name": name, "gender": gender, "birth_date": birth_date, "address": address,
         "phone": phone, "welfare_type": welfare_type, "note": note,
+        "household_types": household_types, "has_disability": has_disability,
+        "disability_type": disability_type,
     }
     try:
         _supabase().table("clients").update(payload).eq("id", client_id).execute()
@@ -133,8 +158,12 @@ def update_client(client_id, name, gender, birth_date, address, phone, welfare_t
 
 
 def delete_client(client_id: int):
-    """회원 정보를 삭제합니다."""
+    """
+    회원을 실제로 지우지 않고 탈퇴 처리합니다(deleted_at 기록). 나중에 같은 사람이
+    다시 등록하러 오면 find_duplicates로 이 기록을 찾아 예전 정보를 참고할 수 있습니다.
+    """
+    now = datetime.now(timezone.utc).isoformat()
     try:
-        _supabase().table("clients").delete().eq("id", client_id).execute()
+        _supabase().table("clients").update({"deleted_at": now}).eq("id", client_id).execute()
     except APIError as e:
         raise DatabaseError("회원 삭제 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.") from e

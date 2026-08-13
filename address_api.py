@@ -23,7 +23,8 @@ address_api.py
 import requests
 import streamlit as st
 
-API_URL = "https://dapi.kakao.com/v2/local/search/address.json"
+ADDRESS_SEARCH_URL = "https://dapi.kakao.com/v2/local/search/address.json"
+KEYWORD_SEARCH_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 
 
 class AddressLookupError(Exception):
@@ -31,23 +32,7 @@ class AddressLookupError(Exception):
     pass
 
 
-def search_road_address(keyword: str) -> list[dict]:
-    """
-    지번(구주소), 건물명, 도로명 일부 등을 검색어로 넣으면,
-    후보 주소 목록을 돌려줍니다.
-
-    반환값 예시:
-        [{"road_address": "서울 강남구 테헤란로 123",
-          "jibun_address": "서울 강남구 역삼동 123-45",
-          "zip_code": "06123"}, ...]
-
-    카카오 API는 검색어가 도로명 주소로 매칭되지 않는 경우(예: 신축 건물,
-    도로명이 아직 없는 지역 등) road_address 정보가 없을 수 있습니다.
-    이런 경우 road_address는 빈 문자열로 채워집니다.
-
-    검색 결과가 없으면 빈 리스트를 돌려줍니다 (에러가 아닙니다).
-    API 키가 없거나, 네트워크 문제, API 자체 오류가 있으면 AddressLookupError를 던집니다.
-    """
+def _get_api_key() -> str:
     # secrets.toml 파일 자체가 없으면 st.secrets.get()도 FileNotFoundError를 던집니다.
     # (파일이 없을 때는 "키가 없다"가 아니라 "파일이 없다"는 다른 종류의 에러가 나서,
     # 이것까지 같이 잡아줘야 합니다.)
@@ -61,12 +46,15 @@ def search_road_address(keyword: str) -> list[dict]:
             "주소 검색 API 키가 설정되지 않았습니다. .streamlit/secrets.toml에 "
             "KAKAO_REST_API_KEY를 추가해주세요."
         )
+    return api_key
 
+
+def _call_kakao(url: str, api_key: str, keyword: str) -> list[dict]:
     headers = {"Authorization": f"KakaoAK {api_key}"}
     params = {"query": keyword, "size": 5}
 
     try:
-        response = requests.get(API_URL, headers=headers, params=params, timeout=5)
+        response = requests.get(url, headers=headers, params=params, timeout=5)
     except requests.RequestException as e:
         raise AddressLookupError(
             "주소 검색 서비스에 연결할 수 없습니다. 인터넷 연결을 확인해주세요."
@@ -91,7 +79,29 @@ def search_road_address(keyword: str) -> list[dict]:
     except ValueError as e:
         raise AddressLookupError("주소 검색 결과를 해석하지 못했습니다.") from e
 
-    documents = data.get("documents", [])
+    return data.get("documents", [])
+
+
+def search_road_address(keyword: str) -> list[dict]:
+    """
+    지번(구주소), 건물명, 도로명 일부 등을 검색어로 넣으면,
+    후보 주소 목록을 돌려줍니다.
+
+    반환값 예시:
+        [{"road_address": "서울 강남구 테헤란로 123",
+          "jibun_address": "서울 강남구 역삼동 123-45",
+          "zip_code": "06123"}, ...]
+
+    카카오 API는 검색어가 도로명 주소로 매칭되지 않는 경우(예: 신축 건물,
+    도로명이 아직 없는 지역 등) road_address 정보가 없을 수 있습니다.
+    이런 경우 road_address는 빈 문자열로 채워집니다.
+
+    검색 결과가 없으면 빈 리스트를 돌려줍니다 (에러가 아닙니다).
+    API 키가 없거나, 네트워크 문제, API 자체 오류가 있으면 AddressLookupError를 던집니다.
+    """
+    api_key = _get_api_key()
+
+    documents = _call_kakao(ADDRESS_SEARCH_URL, api_key, keyword)
 
     results = []
     for doc in documents:
@@ -103,6 +113,23 @@ def search_road_address(keyword: str) -> list[dict]:
             "road_address": road_info.get("address_name", ""),
             "jibun_address": jibun_info.get("address_name", "") or doc.get("address_name", ""),
             "zip_code": road_info.get("zone_no", ""),
+            "place_name": "",
         })
+
+    # 주소 검색 API는 정확한 지번/도로명 형식만 인식하고, 건물명·상호명(예: "행복빌라",
+    # "OO경로당")으로는 검색이 안 됩니다. 결과가 없으면 건물명/장소명까지 찾아주는
+    # 키워드 검색 API로 한 번 더 시도합니다. 이 API는 우편번호를 주지 않으므로
+    # zip_code는 빈 문자열로 둡니다.
+    if not results:
+        documents = _call_kakao(KEYWORD_SEARCH_URL, api_key, keyword)
+        for doc in documents:
+            road_name = doc.get("road_address_name", "")
+            jibun_name = doc.get("address_name", "")
+            results.append({
+                "road_address": road_name or jibun_name,
+                "jibun_address": jibun_name,
+                "zip_code": "",
+                "place_name": doc.get("place_name", ""),
+            })
 
     return results

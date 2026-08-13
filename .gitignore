@@ -13,4 +13,10 @@
 # README 허용
 !README.md
 
+# 개발 일지, DB 마이그레이션 SQL은 두 컴퓨터 간 작업 인계에 필요하므로 허용
+!docs/
+!docs/**
+!sql/
+!sql/**
+
 .env

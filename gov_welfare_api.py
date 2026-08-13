@@ -287,14 +287,18 @@ def is_special_status_target(serv_nm: str, target_nm_array: str) -> bool:
 
 
 def split_general_and_special(
-    services: list[dict], age: int | None, gender: str
+    services: list[dict], age: int | None, gender: str, known_statuses: list[str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """
     성별·생애주기가 명백히 안 맞는 서비스는 아예 제외합니다. 남은 서비스를
     (일반 서비스, 특수 신분 필요 서비스) 두 목록으로 나눠서 돌려줍니다.
     특수 신분 목록은 완전히 버리지 않습니다 - 회원이 실제로 해당할 수도 있으니,
     "참고" 후보로 그대로 전달할 수 있게 남겨둡니다.
+
+    known_statuses: 회원이 실제로 확인된 특수 신분(예: 등록 정보에 "장애 여부: 예"가
+    있으면 "장애인"). 여기 포함된 신분은 "참고"가 아니라 바로 일반 서비스로 취급합니다.
     """
+    known_statuses = known_statuses or []
     filtered = [
         s for s in services
         if matches_gender(s["servNm"], s.get("trgterIndvdlArray", ""), gender)
@@ -303,7 +307,7 @@ def split_general_and_special(
     general, special = [], []
     for s in filtered:
         reason = special_status_reason(s["servNm"], s.get("trgterIndvdlArray", ""))
-        if reason:
+        if reason and reason not in known_statuses:
             special.append({**s, "_special_reason": reason})
         else:
             general.append(s)

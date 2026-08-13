@@ -1,7 +1,8 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
+import auth
 import supabase_db as db
 import stats
 import address_api
@@ -15,6 +16,28 @@ app = FastAPI(title="복지관 회원 관리 통합 API")
 @app.on_event("startup")
 def startup_event():
     db.init_db()
+
+# --- 0. 로그인 ---
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+@app.post("/api/auth/login")
+def login(req: LoginRequest):
+    try:
+        return auth.login(req.email, req.password)
+    except auth.AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+@app.post("/api/auth/refresh")
+def refresh_login(req: RefreshRequest):
+    try:
+        return auth.refresh(req.refresh_token)
+    except auth.AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
 
 # --- 1. 회원 관리 (CRUD) ---
 @app.get("/api/clients")
@@ -43,13 +66,16 @@ class ClientCreate(BaseModel):
     phone: str = ""
     welfare_type: str = "일반"
     note: str = ""
+    household_types: str = ""
+    has_disability: str = "아니오"
+    disability_type: str = ""
     consent_personal: str = "동의함"
     consent_sensitive: str = "동의함"
     consent_third_party: str = "동의함"
     consent_portrait: str = "동의함"
 
 @app.post("/api/clients")
-def create_client(client: ClientCreate):
+def create_client(client: ClientCreate, user: dict = Depends(auth.require_user)):
     try:
         data = client.dict()
         data["birth_date"], birth_ok = parsers.parse_birth_date(data["birth_date"]) if data["birth_date"] else ("", True)
@@ -75,9 +101,12 @@ class ClientUpdate(BaseModel):
     phone: str = ""
     welfare_type: str = "일반"
     note: str = ""
+    household_types: str = ""
+    has_disability: str = "아니오"
+    disability_type: str = ""
 
 @app.put("/api/clients/{client_id}")
-def update_client(client_id: int, client: ClientUpdate):
+def update_client(client_id: int, client: ClientUpdate, user: dict = Depends(auth.require_user)):
     try:
         data = client.dict()
         data["birth_date"], birth_ok = parsers.parse_birth_date(data["birth_date"]) if data["birth_date"] else ("", True)
@@ -96,7 +125,7 @@ def update_client(client_id: int, client: ClientUpdate):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.delete("/api/clients/{client_id}")
-def delete_client(client_id: int):
+def delete_client(client_id: int, user: dict = Depends(auth.require_admin)):
     try:
         db.delete_client(client_id)
         return {"message": "회원 정보를 삭제했습니다."}
@@ -110,7 +139,7 @@ class DuplicateCheck(BaseModel):
     exclude_id: Optional[int] = None
 
 @app.post("/api/clients/check_duplicates")
-def check_duplicates(req: DuplicateCheck):
+def check_duplicates(req: DuplicateCheck, user: dict = Depends(auth.require_user)):
     try:
         df = db.find_duplicates(req.name, req.birth_date, req.phone, req.exclude_id)
         return df.fillna("").to_dict(orient="records")
@@ -164,9 +193,27 @@ def fetch_initial_recommendations(client_id: int):
         welfare_type = client["welfare_type"]
         address = client["address"] or ""
         note = client["note"] or ""
-        # "조손가정, 손자녀(10세) 양육 중"처럼 쉼표로 여러 특이사항을 적는 경우가
-        # 많아서, 첫 항목만 검색 키워드로 뽑아 씁니다 ("조손가정").
-        note_keyword = note.split(",")[0].strip() if note else ""
+        household_types = [h for h in (client.get("household_types") or "").split(",") if h]
+        has_disability = client.get("has_disability") == "예"
+        disability_type = client.get("disability_type") or ""
+
+        # 등록 정보에서 이미 확인된 특수 신분입니다. gov_welfare_api의 특수 신분
+        # 키워드("장애인", "다문화" 등)와 이름을 맞춰서, 해당 신분이 필요한
+        # 서비스를 "참고"가 아니라 바로 추천 후보로 다루게 합니다.
+        known_statuses = []
+        if has_disability:
+            known_statuses.append("장애인")
+        if "다문화가정" in household_types:
+            known_statuses.append("다문화")
+
+        # 검색 키워드는 세분화된 가구 유형(예: "독거노인")이 있으면 그걸 우선 쓰고,
+        # 없으면 기존처럼 "비고"의 첫 항목을 씁니다("조손가정, 손자녀(10세) 양육 중" → "조손가정").
+        # 공공데이터 API 일일 호출 한도가 있어(과거 초과 이력 있음) 추가 검색은 1번으로 제한합니다.
+        note_keyword = (
+            household_types[0] if household_types
+            else note.split(",")[0].strip() if note
+            else disability_type
+        )
 
         detail_blocks = []
         reference_lines = []
@@ -192,7 +239,7 @@ def fetch_initial_recommendations(client_id: int):
                     age=age, welfare_type=welfare_type, search_word=note_keyword, num_of_rows=10
                 )
             nat_general, nat_special = gov_welfare_api.split_general_and_special(
-                _dedup_by_id(nat_list), age=age, gender=gender
+                _dedup_by_id(nat_list), age=age, gender=gender, known_statuses=known_statuses
             )
             for s in nat_general[:5]:
                 d = gov_welfare_api.fetch_welfare_detail(s["servId"])
@@ -221,7 +268,7 @@ def fetch_initial_recommendations(client_id: int):
                     search_word=note_keyword, num_of_rows=10,
                 )
             loc_general, loc_special = gov_welfare_api.split_general_and_special(
-                _dedup_by_id(loc_list), age=age, gender=gender
+                _dedup_by_id(loc_list), age=age, gender=gender, known_statuses=known_statuses
             )
             for s in loc_general[:5]:
                 d = gov_welfare_api.fetch_local_welfare_detail(s["servId"])
@@ -243,6 +290,8 @@ def fetch_initial_recommendations(client_id: int):
             f"성별: {gender or '미상'}\n"
             f"회원 구분: {welfare_type or '미상'}\n"
             f"거주 지역: {welfare_search.extract_region(address)}\n"
+            f"가구 유형: {', '.join(household_types) if household_types else '미상'}\n"
+            f"장애 여부: {'예 (' + disability_type + ')' if has_disability and disability_type else ('예' if has_disability else '아니오')}\n"
             f"비고: {note or '없음'}"
         )
 
