@@ -1,4 +1,5 @@
 import threading
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Response
 from pydantic import BaseModel
@@ -63,13 +64,24 @@ def get_client(client_id: int, user: dict = Depends(auth.require_user)):
 
 @app.get("/api/clients/{client_id}/document")
 def get_client_document(client_id: int, user: dict = Depends(auth.require_user)):
-    """회원 등록 서류를 인쇄용 HTML로 돌려줍니다."""
+    """회원 등록 서류(회원 등록 신청서 + 개인정보 동의서, 2페이지)를 .docx 파일로 돌려줍니다."""
     try:
         client = db.get_client(client_id)
         if not client:
             raise HTTPException(status_code=404, detail="회원을 찾을 수 없습니다.")
-        html = document.build_registration_document(client)
-        return Response(content=html, media_type="text/html")
+        docx_bytes = document.build_registration_document(client)
+        # HTTP 헤더는 영문(ASCII)만 담을 수 있어서, 한글이 든 파일명은 RFC 5987 방식
+        # (filename*=UTF-8''...)으로 인코딩해야 합니다. 그냥 filename="..."에 한글을
+        # 넣으면 latin-1로 인코딩하다가 오류가 납니다.
+        filename = f"{client.get('member_no') or client_id}_회원등록서류.docx"
+        headers = {
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"
+        }
+        return Response(
+            content=docx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers=headers,
+        )
     except db.DatabaseError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -85,6 +97,15 @@ class ClientCreate(BaseModel):
     has_disability: str = "아니오"
     disability_type: str = ""
     photo_data: str = ""
+    emergency_contact_name: str = ""
+    emergency_contact_relation: str = ""
+    emergency_contact_phone: str = ""
+    join_route: str = ""
+    has_illness: str = "없다"
+    illness_type: str = ""
+    has_career: str = "없다"
+    career_type: str = ""
+    counselor: str = ""
     consent_personal: str = "동의함"
     consent_sensitive: str = "동의함"
     consent_third_party: str = "동의함"
@@ -121,6 +142,15 @@ class ClientUpdate(BaseModel):
     has_disability: str = "아니오"
     disability_type: str = ""
     photo_data: str = ""
+    emergency_contact_name: str = ""
+    emergency_contact_relation: str = ""
+    emergency_contact_phone: str = ""
+    join_route: str = ""
+    has_illness: str = "없다"
+    illness_type: str = ""
+    has_career: str = "없다"
+    career_type: str = ""
+    counselor: str = ""
 
 @app.put("/api/clients/{client_id}")
 def update_client(client_id: int, client: ClientUpdate, user: dict = Depends(auth.require_user)):

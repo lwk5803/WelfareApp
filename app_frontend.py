@@ -101,7 +101,7 @@ if st.sidebar.button("로그아웃"):
 st.title("복지관 회원 관리")
 st.caption("🚀 모든 비즈니스 로직과 데이터 처리는 FastAPI 백엔드 서버를 통해 안전하게 처리됩니다.")
 
-MENU_OPTIONS = ["회원 목록", "신규 회원 등록", "회원 수정", "엑셀 일괄등록", "회원 서류 출력", "회원 통계", "추천 복지 서비스"]
+MENU_OPTIONS = ["회원 목록", "신규 회원 등록", "회원 수정", "회원 서류 출력", "회원 통계", "추천 복지 서비스"]
 if IS_ADMIN:
     MENU_OPTIONS.insert(3, "회원 삭제")
 menu = st.sidebar.radio("메뉴", MENU_OPTIONS)
@@ -130,6 +130,9 @@ COLUMN_LABELS = {
 }
 
 HOUSEHOLD_TYPE_OPTIONS = ["독거노인", "노인부부", "조손가정", "한부모가정", "다문화가정", "장애인가구", "일반가구"]
+JOIN_ROUTE_OPTIONS = ["자진", "관공서 의뢰", "주민 추천", "기타"]
+ILLNESS_OPTIONS = ["고혈압", "당뇨", "관절염", "치매", "심장질환", "뇌졸중"]
+CAREER_OPTIONS = ["가사", "공직", "사무직", "자영업", "교직", "전문직", "기술직", "단순노동직"]
 
 
 def handle_response(response):
@@ -268,6 +271,51 @@ elif menu == "신규 회원 등록":
             index=1 if prefill.get("has_disability") == "예" else 0,
         )
         disability_type = st.text_input("장애 유형/정도 (있는 경우)", value=prefill.get("disability_type", ""))
+
+        st.markdown("**비상연락망**")
+        ec_col1, ec_col2, ec_col3 = st.columns(3)
+        with ec_col1:
+            emergency_contact_name = st.text_input("성명", value=prefill.get("emergency_contact_name", ""), key="ec_name")
+        with ec_col2:
+            emergency_contact_relation = st.text_input("관계", value=prefill.get("emergency_contact_relation", ""), key="ec_rel")
+        with ec_col3:
+            emergency_contact_phone = st.text_input("연락처", value=prefill.get("emergency_contact_phone", ""), key="ec_phone")
+
+        jr_col1, jr_col2 = st.columns(2)
+        with jr_col1:
+            join_route_options = JOIN_ROUTE_OPTIONS
+            _prev_route = prefill.get("join_route", "")
+            _prev_route_base = _prev_route.split("(")[0].strip()
+            join_route_pick = st.selectbox(
+                "가입경로", join_route_options,
+                index=join_route_options.index(_prev_route_base) if _prev_route_base in join_route_options else 0,
+            )
+        with jr_col2:
+            counselor = st.text_input("상담자(담당자명)", value=prefill.get("counselor", ""))
+        join_route_detail = ""
+        if join_route_pick in ("관공서 의뢰", "기타"):
+            join_route_detail = st.text_input(f"{join_route_pick} - 사유/내용", key="join_route_detail")
+
+        ill_col1, ill_col2 = st.columns([1, 2])
+        with ill_col1:
+            has_illness = st.radio("질병 유무", ["없다", "있다"], horizontal=True)
+        illness_type = ""
+        if has_illness == "있다":
+            with ill_col2:
+                illness_picked = st.multiselect("질병 종류", ILLNESS_OPTIONS, key="illness_picked")
+            illness_etc = st.text_input("기타 질병 (있는 경우)", key="illness_etc")
+            illness_type = ",".join(illness_picked + ([illness_etc.strip()] if illness_etc.strip() else []))
+
+        car_col1, car_col2 = st.columns([1, 2])
+        with car_col1:
+            has_career = st.radio("경력(전 직업) 유무", ["없다", "있다"], horizontal=True)
+        career_type = ""
+        if has_career == "있다":
+            with car_col2:
+                career_picked = st.multiselect("전 직업 종류", CAREER_OPTIONS, key="career_picked")
+            career_etc = st.text_input("기타 직업 (있는 경우)", key="career_etc")
+            career_type = ",".join(career_picked + ([career_etc.strip()] if career_etc.strip() else []))
+
         note = st.text_area("비고", value=prefill.get("note", ""))
 
         st.markdown("**개인정보 수집 및 이용 동의**")
@@ -291,6 +339,15 @@ elif menu == "신규 회원 등록":
                 "has_disability": has_disability,
                 "disability_type": disability_type.strip() if has_disability == "예" else "",
                 "photo_data": _encode_photo(camera_photo),
+                "emergency_contact_name": emergency_contact_name.strip(),
+                "emergency_contact_relation": emergency_contact_relation.strip(),
+                "emergency_contact_phone": emergency_contact_phone.strip(),
+                "join_route": f"{join_route_pick}({join_route_detail.strip()})" if join_route_detail.strip() else join_route_pick,
+                "has_illness": has_illness,
+                "illness_type": illness_type,
+                "has_career": has_career,
+                "career_type": career_type,
+                "counselor": counselor.strip(),
                 "consent_personal": "동의함" if consent_personal else "동의안함",
                 "consent_sensitive": "동의함" if consent_sensitive else "동의안함",
                 "consent_third_party": "동의함" if consent_third_party else "동의안함",
@@ -305,6 +362,128 @@ elif menu == "신규 회원 등록":
                 st.rerun()
             else:
                 st.error(res.json().get("detail"))
+
+
+    st.divider()
+    with st.expander("📊 엑셀 일괄등록 (여러 명 한 번에 등록)"):
+        st.caption("기존에 쓰시던 회원 명단 엑셀 파일을 업로드하고, 각 컬럼이 어떤 항목인지 매칭해주세요.")
+
+        # st.file_uploader는 자체적으로 다국어를 지원하지 않아서, 내부 안내 문구를
+        # CSS ::after로 덮어씁니다. stFileUploaderDropzone 하위로만 한정해서, 다른
+        # 곳의 일반 버튼(kind="secondary")까지 같이 바뀌는 걸 막습니다.
+        st.markdown(
+            """
+            <style>
+            [data-testid="stFileUploaderDropzoneInstructions"] div span:nth-of-type(1) {
+                font-size: 0;
+            }
+            [data-testid="stFileUploaderDropzoneInstructions"] div span:nth-of-type(1)::after {
+                content: "여기에 파일을 끌어다 놓으세요";
+                font-size: 14px;
+            }
+            [data-testid="stFileUploaderDropzoneInstructions"] div span:nth-of-type(2) {
+                font-size: 0;
+            }
+            [data-testid="stFileUploaderDropzoneInstructions"] div span:nth-of-type(2)::after {
+                content: "파일당 제한 200MB • XLSX, XLS";
+                font-size: 12px;
+            }
+            [data-testid="stFileUploaderDropzone"] [data-testid="stBaseButton-secondary"] {
+                font-size: 0;
+            }
+            [data-testid="stFileUploaderDropzone"] [data-testid="stBaseButton-secondary"]::after {
+                content: "파일 찾기";
+                font-size: 14px;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        uploaded_file = st.file_uploader("엑셀 파일 선택", type=["xlsx", "xls"], key="bulk_upload")
+
+        if uploaded_file is not None:
+            try:
+                preview_df = excel_import.read_excel_preview(uploaded_file)
+            except Exception as e:
+                st.error(f"엑셀 파일을 읽는 중 오류가 발생했습니다: {e}")
+                preview_df = None
+
+            if preview_df is not None:
+                st.caption(f"미리보기 (총 {len(preview_df)}행)")
+                st.dataframe(preview_df.head(5), use_container_width=True, hide_index=True)
+
+                st.markdown("**컬럼 매칭**")
+                excel_columns = ["(사용 안 함)"] + list(preview_df.columns)
+                field_labels = {
+                    "name": "성명 *", "gender": "성별", "birth_date": "생년월일",
+                    "address": "주소", "phone": "전화번호",
+                    "welfare_type": "회원 구분", "note": "비고",
+                }
+
+                def _guess_index(field: str) -> int:
+                    for i, col in enumerate(excel_columns):
+                        if str(col).strip() == field or str(col).strip() == field_labels[field].rstrip(" *"):
+                            return i
+                    return 0
+
+                mapping = {}
+                map_col1, map_col2 = st.columns(2)
+                for i, (field, label) in enumerate(field_labels.items()):
+                    with (map_col1 if i % 2 == 0 else map_col2):
+                        mapping[field] = st.selectbox(
+                            label, excel_columns, index=_guess_index(field), key=f"map_{field}"
+                        )
+
+                bulk_consent = st.checkbox(
+                    "업로드하는 명단에 있는 회원 전원에 대해 개인정보·민감정보 수집·이용 및 "
+                    "제3자 제공 동의를 이미 서면 등으로 받았음을 확인합니다. (필수)"
+                )
+
+                if st.button("일괄 등록 실행", use_container_width=True, type="primary"):
+                    if mapping["name"] == "(사용 안 함)":
+                        st.error("성명 컬럼은 반드시 매칭해야 합니다.")
+                    elif not bulk_consent:
+                        st.error("위 동의 확인 체크박스를 선택해야 일괄 등록을 실행할 수 있습니다.")
+                    else:
+                        success, skipped, failed = 0, [], []
+                        progress = st.progress(0.0)
+                        total = len(preview_df)
+                        for i, row in preview_df.iterrows():
+                            mapped_row = {
+                                field: (row[col] if col != "(사용 안 함)" else None)
+                                for field, col in mapping.items()
+                            }
+                            normalized, warnings = excel_import.normalize_row(mapped_row)
+                            progress.progress((i + 1) / total)
+
+                            if not normalized["name"]:
+                                skipped.append(f"{i + 2}행: 성명이 비어있어 건너뜀")
+                                continue
+
+                            payload = {
+                                **normalized,
+                                "consent_personal": "동의함", "consent_sensitive": "동의함",
+                                "consent_third_party": "동의함", "consent_portrait": "동의안함",
+                            }
+                            res = requests.post(f"{API_BASE}/clients", json=payload, headers=AUTH_HEADERS)
+                            if res.status_code == 200:
+                                success += 1
+                                for w in warnings:
+                                    skipped.append(f"{i + 2}행 ({normalized['name']}): {w}")
+                            else:
+                                detail = res.json().get("detail", res.text)
+                                failed.append(f"{i + 2}행 ({normalized['name']}): {detail}")
+
+                        st.success(f"{success}건 등록 완료")
+                        if skipped:
+                            with st.expander(f"경고 {len(skipped)}건"):
+                                for msg in skipped:
+                                    st.caption(msg)
+                        if failed:
+                            with st.expander(f"실패 {len(failed)}건"):
+                                for msg in failed:
+                                    st.caption(msg)
 
 # ====================================================================
 # 2-1. 회원 수정
@@ -351,6 +530,50 @@ elif menu == "회원 수정":
                             index=1 if client.get("has_disability") == "예" else 0,
                         )
                         e_disability_type = st.text_input("장애 유형/정도 (있는 경우)", value=client.get("disability_type", ""))
+
+                        st.markdown("**비상연락망**")
+                        eec1, eec2, eec3 = st.columns(3)
+                        with eec1:
+                            e_emg_name = st.text_input("성명", value=client.get("emergency_contact_name", ""), key="e_emg_name")
+                        with eec2:
+                            e_emg_rel = st.text_input("관계", value=client.get("emergency_contact_relation", ""), key="e_emg_rel")
+                        with eec3:
+                            e_emg_phone = st.text_input("연락처", value=client.get("emergency_contact_phone", ""), key="e_emg_phone")
+
+                        ejr1, ejr2 = st.columns(2)
+                        with ejr1:
+                            _prev_route_base = (client.get("join_route") or "").split("(")[0].strip()
+                            e_join_route = st.selectbox(
+                                "가입경로", JOIN_ROUTE_OPTIONS,
+                                index=JOIN_ROUTE_OPTIONS.index(_prev_route_base) if _prev_route_base in JOIN_ROUTE_OPTIONS else 0,
+                            )
+                        with ejr2:
+                            e_counselor = st.text_input("상담자(담당자명)", value=client.get("counselor", ""))
+
+                        eill1, eill2 = st.columns([1, 2])
+                        with eill1:
+                            e_has_illness = st.radio(
+                                "질병 유무", ["없다", "있다"], horizontal=True,
+                                index=1 if client.get("has_illness") == "있다" else 0,
+                            )
+                        with eill2:
+                            e_illness_type = st.text_input(
+                                "질병 종류 (쉼표로 구분)", value=client.get("illness_type", ""),
+                                disabled=(e_has_illness == "없다"),
+                            )
+
+                        ecar1, ecar2 = st.columns([1, 2])
+                        with ecar1:
+                            e_has_career = st.radio(
+                                "경력(전 직업) 유무", ["없다", "있다"], horizontal=True,
+                                index=1 if client.get("has_career") == "있다" else 0,
+                            )
+                        with ecar2:
+                            e_career_type = st.text_input(
+                                "전 직업 종류 (쉼표로 구분)", value=client.get("career_type", ""),
+                                disabled=(e_has_career == "없다"),
+                            )
+
                         e_note = st.text_area("비고", value=client["note"])
 
                         edit_sub = st.form_submit_button("수정하기", use_container_width=True)
@@ -363,6 +586,15 @@ elif menu == "회원 수정":
                             "has_disability": e_has_disability,
                             "disability_type": e_disability_type.strip() if e_has_disability == "예" else "",
                             "photo_data": _encode_photo(e_camera_photo),
+                            "emergency_contact_name": e_emg_name.strip(),
+                            "emergency_contact_relation": e_emg_rel.strip(),
+                            "emergency_contact_phone": e_emg_phone.strip(),
+                            "join_route": e_join_route,
+                            "has_illness": e_has_illness,
+                            "illness_type": e_illness_type.strip() if e_has_illness == "있다" else "",
+                            "has_career": e_has_career,
+                            "career_type": e_career_type.strip() if e_has_career == "있다" else "",
+                            "counselor": e_counselor.strip(),
                         }
                         up_res = requests.put(f"{API_BASE}/clients/{selected_id}", json=update_payload, headers=AUTH_HEADERS)
                         if up_res.status_code == 200:
@@ -405,137 +637,14 @@ elif menu == "회원 삭제":
         st.error(f"오류 발생: {e}")
 
 # ====================================================================
-# 2-3. 엑셀 일괄등록
-# ====================================================================
-elif menu == "엑셀 일괄등록":
-    st.subheader("엑셀 일괄등록")
-    st.caption("기존에 쓰시던 회원 명단 엑셀 파일을 업로드하고, 각 컬럼이 어떤 항목인지 매칭해주세요.")
-
-    # st.file_uploader는 자체적으로 다국어를 지원하지 않아서, 내부 안내 문구를
-    # CSS ::after로 덮어씁니다. stFileUploaderDropzone 하위로만 한정해서, 다른
-    # 곳의 일반 버튼(kind="secondary")까지 같이 바뀌는 걸 막습니다.
-    st.markdown(
-        """
-        <style>
-        [data-testid="stFileUploaderDropzoneInstructions"] div span:nth-of-type(1) {
-            font-size: 0;
-        }
-        [data-testid="stFileUploaderDropzoneInstructions"] div span:nth-of-type(1)::after {
-            content: "여기에 파일을 끌어다 놓으세요";
-            font-size: 14px;
-        }
-        [data-testid="stFileUploaderDropzoneInstructions"] div span:nth-of-type(2) {
-            font-size: 0;
-        }
-        [data-testid="stFileUploaderDropzoneInstructions"] div span:nth-of-type(2)::after {
-            content: "파일당 제한 200MB • XLSX, XLS";
-            font-size: 12px;
-        }
-        [data-testid="stFileUploaderDropzone"] [data-testid="stBaseButton-secondary"] {
-            font-size: 0;
-        }
-        [data-testid="stFileUploaderDropzone"] [data-testid="stBaseButton-secondary"]::after {
-            content: "파일 찾기";
-            font-size: 14px;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    uploaded_file = st.file_uploader("엑셀 파일 선택", type=["xlsx", "xls"], key="bulk_upload")
-
-    if uploaded_file is not None:
-        try:
-            preview_df = excel_import.read_excel_preview(uploaded_file)
-        except Exception as e:
-            st.error(f"엑셀 파일을 읽는 중 오류가 발생했습니다: {e}")
-            preview_df = None
-
-        if preview_df is not None:
-            st.caption(f"미리보기 (총 {len(preview_df)}행)")
-            st.dataframe(preview_df.head(5), use_container_width=True, hide_index=True)
-
-            st.markdown("**컬럼 매칭**")
-            excel_columns = ["(사용 안 함)"] + list(preview_df.columns)
-            field_labels = {
-                "name": "성명 *", "gender": "성별", "birth_date": "생년월일",
-                "address": "주소", "phone": "전화번호",
-                "welfare_type": "회원 구분", "note": "비고",
-            }
-
-            def _guess_index(field: str) -> int:
-                for i, col in enumerate(excel_columns):
-                    if str(col).strip() == field or str(col).strip() == field_labels[field].rstrip(" *"):
-                        return i
-                return 0
-
-            mapping = {}
-            map_col1, map_col2 = st.columns(2)
-            for i, (field, label) in enumerate(field_labels.items()):
-                with (map_col1 if i % 2 == 0 else map_col2):
-                    mapping[field] = st.selectbox(
-                        label, excel_columns, index=_guess_index(field), key=f"map_{field}"
-                    )
-
-            bulk_consent = st.checkbox(
-                "업로드하는 명단에 있는 회원 전원에 대해 개인정보·민감정보 수집·이용 및 "
-                "제3자 제공 동의를 이미 서면 등으로 받았음을 확인합니다. (필수)"
-            )
-
-            if st.button("일괄 등록 실행", use_container_width=True, type="primary"):
-                if mapping["name"] == "(사용 안 함)":
-                    st.error("성명 컬럼은 반드시 매칭해야 합니다.")
-                elif not bulk_consent:
-                    st.error("위 동의 확인 체크박스를 선택해야 일괄 등록을 실행할 수 있습니다.")
-                else:
-                    success, skipped, failed = 0, [], []
-                    progress = st.progress(0.0)
-                    total = len(preview_df)
-                    for i, row in preview_df.iterrows():
-                        mapped_row = {
-                            field: (row[col] if col != "(사용 안 함)" else None)
-                            for field, col in mapping.items()
-                        }
-                        normalized, warnings = excel_import.normalize_row(mapped_row)
-                        progress.progress((i + 1) / total)
-
-                        if not normalized["name"]:
-                            skipped.append(f"{i + 2}행: 성명이 비어있어 건너뜀")
-                            continue
-
-                        payload = {
-                            **normalized,
-                            "consent_personal": "동의함", "consent_sensitive": "동의함",
-                            "consent_third_party": "동의함", "consent_portrait": "동의안함",
-                        }
-                        res = requests.post(f"{API_BASE}/clients", json=payload, headers=AUTH_HEADERS)
-                        if res.status_code == 200:
-                            success += 1
-                            for w in warnings:
-                                skipped.append(f"{i + 2}행 ({normalized['name']}): {w}")
-                        else:
-                            detail = res.json().get("detail", res.text)
-                            failed.append(f"{i + 2}행 ({normalized['name']}): {detail}")
-
-                    st.success(f"{success}건 등록 완료")
-                    if skipped:
-                        with st.expander(f"경고 {len(skipped)}건"):
-                            for msg in skipped:
-                                st.caption(msg)
-                    if failed:
-                        with st.expander(f"실패 {len(failed)}건"):
-                            for msg in failed:
-                                st.caption(msg)
-
-# ====================================================================
 # 2-4. 회원 서류 출력
 # ====================================================================
 elif menu == "회원 서류 출력":
     st.subheader("회원 서류 출력")
     st.caption(
-        "회원 정보를 인쇄용 서류로 만듭니다. 다운로드한 HTML 파일을 브라우저에서 열고 "
-        "인쇄(Ctrl+P) → \"PDF로 저장\"을 누르면 그대로 PDF 서류가 됩니다."
+        "회원 정보를 워드(.docx) 서류로 만듭니다. 1페이지는 회원 등록 신청서, "
+        "2페이지는 개인정보 등 수집·이용 동의서입니다. 다운로드한 파일은 한글/워드에서 "
+        "열어 그대로 인쇄하거나 필요한 부분만 고쳐 쓸 수 있습니다."
     )
     try:
         res = requests.get(f"{API_BASE}/clients", headers=AUTH_HEADERS)
@@ -551,21 +660,20 @@ elif menu == "회원 서류 출력":
             if st.button("서류 만들기", use_container_width=True):
                 doc_res = requests.get(f"{API_BASE}/clients/{selected_id}/document", headers=AUTH_HEADERS)
                 if doc_res.status_code == 200:
-                    st.session_state["doc_html"] = doc_res.text
+                    st.session_state["doc_bytes"] = doc_res.content
                     st.session_state["doc_name"] = selected_label
                 else:
                     st.error("서류를 만드는 중 오류가 발생했습니다.")
 
-            if st.session_state.get("doc_html"):
+            if st.session_state.get("doc_bytes"):
+                st.success("서류가 준비됐습니다.")
                 st.download_button(
-                    "서류 다운로드 (HTML)",
-                    data=st.session_state["doc_html"],
-                    file_name=f"{st.session_state.get('doc_name', '회원')}_등록서류.html",
-                    mime="text/html",
+                    "서류 다운로드 (.docx)",
+                    data=st.session_state["doc_bytes"],
+                    file_name=f"{st.session_state.get('doc_name', '회원')}_등록서류.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     use_container_width=True,
                 )
-                with st.expander("미리보기"):
-                    st.components.v1.html(st.session_state["doc_html"], height=700, scrolling=True)
     except Exception as e:
         st.error(f"서류 생성 오류: {e}")
 

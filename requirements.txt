@@ -12,3 +12,4 @@ supabase
 pydantic
 pyjwt
 cryptography
+python-docx

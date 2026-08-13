@@ -20,6 +20,8 @@ CLIENT_COLUMNS = [
     "id", "member_no", "name", "gender", "birth_date", "address",
     "phone", "welfare_type", "note", "created_at",
     "household_types", "has_disability", "disability_type",
+    "emergency_contact_name", "emergency_contact_relation", "emergency_contact_phone",
+    "join_route", "has_illness", "illness_type", "has_career", "career_type", "counselor",
     "consent_personal", "consent_sensitive", "consent_third_party", "consent_portrait",
     "consent_signed_at", "deleted_at", "photo_data",
 ]
@@ -123,6 +125,9 @@ def add_client(
     household_types, has_disability, disability_type,
     consent_personal, consent_sensitive, consent_third_party, consent_portrait,
     photo_data="",
+    emergency_contact_name="", emergency_contact_relation="", emergency_contact_phone="",
+    join_route="", has_illness="없다", illness_type="", has_career="없다", career_type="",
+    counselor="",
 ):
     """새 회원을 등록합니다. consent_signed_at은 현재 시각으로 자동 기록합니다."""
     now = datetime.now(timezone.utc).isoformat()
@@ -131,6 +136,11 @@ def add_client(
         "phone": phone, "welfare_type": welfare_type, "note": note, "created_at": now,
         "household_types": household_types, "has_disability": has_disability,
         "disability_type": disability_type, "photo_data": photo_data,
+        "emergency_contact_name": emergency_contact_name,
+        "emergency_contact_relation": emergency_contact_relation,
+        "emergency_contact_phone": emergency_contact_phone,
+        "join_route": join_route, "has_illness": has_illness, "illness_type": illness_type,
+        "has_career": has_career, "career_type": career_type, "counselor": counselor,
         "consent_personal": consent_personal, "consent_sensitive": consent_sensitive,
         "consent_third_party": consent_third_party, "consent_portrait": consent_portrait,
         "consent_signed_at": now,
@@ -146,6 +156,9 @@ def add_client(
 def update_client(
     client_id, name, gender, birth_date, address, phone, welfare_type, note,
     household_types, has_disability, disability_type, photo_data="",
+    emergency_contact_name="", emergency_contact_relation="", emergency_contact_phone="",
+    join_route="", has_illness="없다", illness_type="", has_career="없다", career_type="",
+    counselor="",
 ):
     """
     기존 회원 정보를 수정합니다 (동의 항목은 건드리지 않습니다). photo_data는 새
@@ -156,6 +169,11 @@ def update_client(
         "phone": phone, "welfare_type": welfare_type, "note": note,
         "household_types": household_types, "has_disability": has_disability,
         "disability_type": disability_type,
+        "emergency_contact_name": emergency_contact_name,
+        "emergency_contact_relation": emergency_contact_relation,
+        "emergency_contact_phone": emergency_contact_phone,
+        "join_route": join_route, "has_illness": has_illness, "illness_type": illness_type,
+        "has_career": has_career, "career_type": career_type, "counselor": counselor,
     }
     if photo_data:
         payload["photo_data"] = photo_data
