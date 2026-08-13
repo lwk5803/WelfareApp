@@ -21,8 +21,12 @@ CLIENT_COLUMNS = [
     "phone", "welfare_type", "note", "created_at",
     "household_types", "has_disability", "disability_type",
     "consent_personal", "consent_sensitive", "consent_third_party", "consent_portrait",
-    "consent_signed_at", "deleted_at",
+    "consent_signed_at", "deleted_at", "photo_data",
 ]
+
+# 회원 목록 화면처럼 여러 명을 한 번에 가져올 때는 사진(base64, 수십~수백KB)까지
+# 매번 실어 보내면 느려지므로 뺍니다. 사진은 회원 한 명을 볼 때(get_client)만 필요합니다.
+_LIST_COLUMNS = [c for c in CLIENT_COLUMNS if c != "photo_data"]
 
 
 class DatabaseError(Exception):
@@ -70,15 +74,15 @@ def init_db() -> bool:
 
 
 def get_all_clients() -> pd.DataFrame:
-    """탈퇴(소프트 삭제) 처리되지 않은 회원 정보를 pandas DataFrame으로 가져옵니다."""
+    """탈퇴(소프트 삭제) 처리되지 않은 회원 정보를 pandas DataFrame으로 가져옵니다 (사진 제외)."""
     try:
         res = (
-            _supabase().table("clients").select("*")
+            _supabase().table("clients").select(",".join(_LIST_COLUMNS))
             .is_("deleted_at", "null").order("id", desc=True).execute()
         )
     except APIError as e:
         raise DatabaseError("회원 목록을 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.") from e
-    return pd.DataFrame(res.data, columns=CLIENT_COLUMNS if not res.data else None)
+    return pd.DataFrame(res.data, columns=_LIST_COLUMNS if not res.data else None)
 
 
 def get_client(client_id: int) -> dict | None:
@@ -118,6 +122,7 @@ def add_client(
     name, gender, birth_date, address, phone, welfare_type, note,
     household_types, has_disability, disability_type,
     consent_personal, consent_sensitive, consent_third_party, consent_portrait,
+    photo_data="",
 ):
     """새 회원을 등록합니다. consent_signed_at은 현재 시각으로 자동 기록합니다."""
     now = datetime.now(timezone.utc).isoformat()
@@ -125,7 +130,7 @@ def add_client(
         "name": name, "gender": gender, "birth_date": birth_date, "address": address,
         "phone": phone, "welfare_type": welfare_type, "note": note, "created_at": now,
         "household_types": household_types, "has_disability": has_disability,
-        "disability_type": disability_type,
+        "disability_type": disability_type, "photo_data": photo_data,
         "consent_personal": consent_personal, "consent_sensitive": consent_sensitive,
         "consent_third_party": consent_third_party, "consent_portrait": consent_portrait,
         "consent_signed_at": now,
@@ -140,15 +145,20 @@ def add_client(
 
 def update_client(
     client_id, name, gender, birth_date, address, phone, welfare_type, note,
-    household_types, has_disability, disability_type,
+    household_types, has_disability, disability_type, photo_data="",
 ):
-    """기존 회원 정보를 수정합니다 (동의 항목은 건드리지 않습니다)."""
+    """
+    기존 회원 정보를 수정합니다 (동의 항목은 건드리지 않습니다). photo_data는 새
+    사진을 촬영했을 때만 값이 오므로, 비어있으면 기존 사진을 그대로 둡니다.
+    """
     payload = {
         "name": name, "gender": gender, "birth_date": birth_date, "address": address,
         "phone": phone, "welfare_type": welfare_type, "note": note,
         "household_types": household_types, "has_disability": has_disability,
         "disability_type": disability_type,
     }
+    if photo_data:
+        payload["photo_data"] = photo_data
     try:
         _supabase().table("clients").update(payload).eq("id", client_id).execute()
     except APIError as e:

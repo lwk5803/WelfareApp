@@ -1,10 +1,11 @@
 import threading
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
 import auth
+import document
 import supabase_db as db
 import stats
 import address_api
@@ -43,7 +44,7 @@ def refresh_login(req: RefreshRequest):
 
 # --- 1. 회원 관리 (CRUD) ---
 @app.get("/api/clients")
-def get_clients():
+def get_clients(user: dict = Depends(auth.require_user)):
     try:
         df = db.get_all_clients()
         return df.fillna("").to_dict(orient="records")
@@ -51,12 +52,24 @@ def get_clients():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/clients/{client_id}")
-def get_client(client_id: int):
+def get_client(client_id: int, user: dict = Depends(auth.require_user)):
     try:
         client = db.get_client(client_id)
         if not client:
             raise HTTPException(status_code=404, detail="회원을 찾을 수 없습니다.")
         return client
+    except db.DatabaseError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/clients/{client_id}/document")
+def get_client_document(client_id: int, user: dict = Depends(auth.require_user)):
+    """회원 등록 서류를 인쇄용 HTML로 돌려줍니다."""
+    try:
+        client = db.get_client(client_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="회원을 찾을 수 없습니다.")
+        html = document.build_registration_document(client)
+        return Response(content=html, media_type="text/html")
     except db.DatabaseError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -71,6 +84,7 @@ class ClientCreate(BaseModel):
     household_types: str = ""
     has_disability: str = "아니오"
     disability_type: str = ""
+    photo_data: str = ""
     consent_personal: str = "동의함"
     consent_sensitive: str = "동의함"
     consent_third_party: str = "동의함"
@@ -106,6 +120,7 @@ class ClientUpdate(BaseModel):
     household_types: str = ""
     has_disability: str = "아니오"
     disability_type: str = ""
+    photo_data: str = ""
 
 @app.put("/api/clients/{client_id}")
 def update_client(client_id: int, client: ClientUpdate, user: dict = Depends(auth.require_user)):
@@ -151,7 +166,7 @@ def check_duplicates(req: DuplicateCheck, user: dict = Depends(auth.require_user
 
 # --- 2. 주소 및 외부 API (카카오, 공공데이터, 웹검색) ---
 @app.get("/api/address/search")
-def search_address(keyword: str):
+def search_address(keyword: str, user: dict = Depends(auth.require_user)):
     try:
         return address_api.search_road_address(keyword)
     except address_api.AddressLookupError as e:
@@ -160,7 +175,7 @@ def search_address(keyword: str):
 
 # --- 3. 통계 API ---
 @app.get("/api/stats/summary")
-def get_stats_summary():
+def get_stats_summary(user: dict = Depends(auth.require_user)):
     try:
         df = db.get_all_clients()
         return stats.build_summary(df)
@@ -168,7 +183,7 @@ def get_stats_summary():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/stats/period/{period}")
-def get_stats_period(period: str):
+def get_stats_period(period: str, user: dict = Depends(auth.require_user)):
     try:
         df = db.get_all_clients()
         result_df = stats.build_period_breakdown(df, period)

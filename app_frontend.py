@@ -1,15 +1,30 @@
+import base64
 import datetime
+import io
 import time
 
 import extra_streamlit_components as stx
 import streamlit as st
 import pandas as pd
 import requests
+from PIL import Image
 
 import excel_import
 
 API_BASE = "http://localhost:8000/api"
 REFRESH_COOKIE = "welfare_refresh_token"
+
+
+def _encode_photo(camera_file) -> str:
+    """카메라로 찍은 사진을 리사이즈해서 base64 JPEG 문자열로 바꿉니다.
+    원본 그대로 저장하면 용량이 커서, 서류에 넣기 충분한 크기로만 줄입니다."""
+    if camera_file is None:
+        return ""
+    img = Image.open(camera_file)
+    img.thumbnail((800, 800))
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=80)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 st.set_page_config(page_title="복지관 회원 관리 (통합 시스템)", page_icon="🤝", layout="wide")
 
@@ -86,7 +101,7 @@ if st.sidebar.button("로그아웃"):
 st.title("복지관 회원 관리")
 st.caption("🚀 모든 비즈니스 로직과 데이터 처리는 FastAPI 백엔드 서버를 통해 안전하게 처리됩니다.")
 
-MENU_OPTIONS = ["회원 목록", "신규 회원 등록", "회원 수정", "엑셀 일괄등록", "회원 통계", "추천 복지 서비스"]
+MENU_OPTIONS = ["회원 목록", "신규 회원 등록", "회원 수정", "엑셀 일괄등록", "회원 서류 출력", "회원 통계", "추천 복지 서비스"]
 if IS_ADMIN:
     MENU_OPTIONS.insert(3, "회원 삭제")
 menu = st.sidebar.radio("메뉴", MENU_OPTIONS)
@@ -134,7 +149,7 @@ def handle_response(response):
 if menu == "회원 목록":
     st.subheader("회원 목록")
     try:
-        res = requests.get(f"{API_BASE}/clients")
+        res = requests.get(f"{API_BASE}/clients", headers=AUTH_HEADERS)
         data = handle_response(res)
         if data is not None:
             df = pd.DataFrame(data)
@@ -202,7 +217,7 @@ elif menu == "신규 회원 등록":
         addr_kw = st.text_input("지번 또는 건물명 입력", key="addr_kw_add")
         if st.button("주소 검색", key="addr_btn_add"):
             if addr_kw:
-                res = requests.get(f"{API_BASE}/address/search", params={"keyword": addr_kw})
+                res = requests.get(f"{API_BASE}/address/search", params={"keyword": addr_kw}, headers=AUTH_HEADERS)
                 st.session_state["addr_results_add"] = handle_response(res)
 
         if st.session_state.get("addr_results_add"):
@@ -228,6 +243,10 @@ elif menu == "신규 회원 등록":
         if st.button("불러온 정보 지우기"):
             st.session_state.pop("prefill_client", None)
             st.rerun()
+
+    with st.expander("📷 회원 사진 촬영 (선택, 서류 작성용)"):
+        st.caption("태블릿/휴대폰으로 접속했다면 바로 카메라가 열립니다.")
+        camera_photo = st.camera_input("사진 촬영", key="reg_camera", label_visibility="collapsed")
 
     with st.form("add_form", clear_on_submit=True):
         name = st.text_input("성명 *", value=prefill.get("name", ""))
@@ -271,6 +290,7 @@ elif menu == "신규 회원 등록":
                 "household_types": ",".join(household_types),
                 "has_disability": has_disability,
                 "disability_type": disability_type.strip() if has_disability == "예" else "",
+                "photo_data": _encode_photo(camera_photo),
                 "consent_personal": "동의함" if consent_personal else "동의안함",
                 "consent_sensitive": "동의함" if consent_sensitive else "동의안함",
                 "consent_third_party": "동의함" if consent_third_party else "동의안함",
@@ -281,6 +301,8 @@ elif menu == "신규 회원 등록":
                 st.success(f"'{name}' 님을 등록했습니다.")
                 st.session_state.pop("prefilled_addr", None)
                 st.session_state.pop("prefill_client", None)
+                st.session_state.pop("reg_camera", None)
+                st.rerun()
             else:
                 st.error(res.json().get("detail"))
 
@@ -290,7 +312,7 @@ elif menu == "신규 회원 등록":
 elif menu == "회원 수정":
     st.subheader("회원 수정")
     try:
-        res = requests.get(f"{API_BASE}/clients")
+        res = requests.get(f"{API_BASE}/clients", headers=AUTH_HEADERS)
         data = handle_response(res)
         if data:
             df = pd.DataFrame(data)
@@ -301,10 +323,17 @@ elif menu == "회원 수정":
                 selected_label = st.selectbox("회원 선택", options.keys())
                 selected_id = options[selected_label]
 
-                client_res = requests.get(f"{API_BASE}/clients/{selected_id}")
+                client_res = requests.get(f"{API_BASE}/clients/{selected_id}", headers=AUTH_HEADERS)
                 client = handle_response(client_res)
 
                 if client:
+                    if client.get("photo_data"):
+                        st.image(base64.b64decode(client["photo_data"]), caption="현재 등록된 사진", width=150)
+                    with st.expander("📷 사진 다시 촬영 (새로 찍으면 기존 사진을 대체합니다)"):
+                        e_camera_photo = st.camera_input(
+                            "사진 촬영", key=f"edit_camera_{selected_id}", label_visibility="collapsed"
+                        )
+
                     with st.form("edit_form"):
                         e_name = st.text_input("성명", value=client["name"])
                         e_gender = st.radio("성별", ["남", "여"], horizontal=True, index=0 if client["gender"]=="남" else 1)
@@ -333,6 +362,7 @@ elif menu == "회원 수정":
                             "household_types": ",".join(e_household),
                             "has_disability": e_has_disability,
                             "disability_type": e_disability_type.strip() if e_has_disability == "예" else "",
+                            "photo_data": _encode_photo(e_camera_photo),
                         }
                         up_res = requests.put(f"{API_BASE}/clients/{selected_id}", json=update_payload, headers=AUTH_HEADERS)
                         if up_res.status_code == 200:
@@ -347,7 +377,7 @@ elif menu == "회원 수정":
 elif menu == "회원 삭제":
     st.subheader("회원 삭제")
     try:
-        res = requests.get(f"{API_BASE}/clients")
+        res = requests.get(f"{API_BASE}/clients", headers=AUTH_HEADERS)
         data = handle_response(res)
         if data:
             df = pd.DataFrame(data)
@@ -358,7 +388,7 @@ elif menu == "회원 삭제":
                 selected_label = st.selectbox("삭제할 회원 선택", options.keys(), key="delete_select")
                 selected_id = options[selected_label]
 
-                client_res = requests.get(f"{API_BASE}/clients/{selected_id}")
+                client_res = requests.get(f"{API_BASE}/clients/{selected_id}", headers=AUTH_HEADERS)
                 client = handle_response(client_res)
                 if client:
                     st.dataframe(
@@ -499,12 +529,53 @@ elif menu == "엑셀 일괄등록":
                                 st.caption(msg)
 
 # ====================================================================
+# 2-4. 회원 서류 출력
+# ====================================================================
+elif menu == "회원 서류 출력":
+    st.subheader("회원 서류 출력")
+    st.caption(
+        "회원 정보를 인쇄용 서류로 만듭니다. 다운로드한 HTML 파일을 브라우저에서 열고 "
+        "인쇄(Ctrl+P) → \"PDF로 저장\"을 누르면 그대로 PDF 서류가 됩니다."
+    )
+    try:
+        res = requests.get(f"{API_BASE}/clients", headers=AUTH_HEADERS)
+        data = handle_response(res)
+        if not data:
+            st.info("등록된 회원이 없습니다.")
+        else:
+            df = pd.DataFrame(data)
+            options = {f"{row.get('member_no') or row['id']} - {row['name']}": row['id'] for _, row in df.iterrows()}
+            selected_label = st.selectbox("회원 선택", options.keys(), key="doc_select")
+            selected_id = options[selected_label]
+
+            if st.button("서류 만들기", use_container_width=True):
+                doc_res = requests.get(f"{API_BASE}/clients/{selected_id}/document", headers=AUTH_HEADERS)
+                if doc_res.status_code == 200:
+                    st.session_state["doc_html"] = doc_res.text
+                    st.session_state["doc_name"] = selected_label
+                else:
+                    st.error("서류를 만드는 중 오류가 발생했습니다.")
+
+            if st.session_state.get("doc_html"):
+                st.download_button(
+                    "서류 다운로드 (HTML)",
+                    data=st.session_state["doc_html"],
+                    file_name=f"{st.session_state.get('doc_name', '회원')}_등록서류.html",
+                    mime="text/html",
+                    use_container_width=True,
+                )
+                with st.expander("미리보기"):
+                    st.components.v1.html(st.session_state["doc_html"], height=700, scrolling=True)
+    except Exception as e:
+        st.error(f"서류 생성 오류: {e}")
+
+# ====================================================================
 # 3. 회원 통계
 # ====================================================================
 elif menu == "회원 통계":
     st.subheader("회원 통계")
     try:
-        summary = handle_response(requests.get(f"{API_BASE}/stats/summary"))
+        summary = handle_response(requests.get(f"{API_BASE}/stats/summary", headers=AUTH_HEADERS))
         if summary:
             st.markdown(
                 f"**전체 회원수 : {summary['total']}명** | "
@@ -512,7 +583,7 @@ elif menu == "회원 통계":
                 f"이번 달 신규가입 : {summary['this_month']}명"
             )
             st.divider()
-            period_data = handle_response(requests.get(f"{API_BASE}/stats/period/월"))
+            period_data = handle_response(requests.get(f"{API_BASE}/stats/period/월", headers=AUTH_HEADERS))
             if period_data:
                 st.markdown("#### 월별 가입 현황")
                 st.dataframe(pd.DataFrame(period_data), use_container_width=True, hide_index=True)
@@ -525,7 +596,7 @@ elif menu == "회원 통계":
 elif menu == "추천 복지 서비스":
     st.subheader("추천 복지 서비스")
     try:
-        res = requests.get(f"{API_BASE}/clients")
+        res = requests.get(f"{API_BASE}/clients", headers=AUTH_HEADERS)
         clients = handle_response(res)
         if not clients:
             st.info("등록된 회원이 없습니다.")
