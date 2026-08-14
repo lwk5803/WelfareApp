@@ -1,7 +1,5 @@
-streamlit
+streamlit>=1.59.0
 extra-streamlit-components
-streamlit-drawable-canvas
-numpy
 pandas
 openpyxl
 jinja2

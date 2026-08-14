@@ -4,15 +4,14 @@ import io
 import time
 
 import extra_streamlit_components as stx
-import numpy as np
 import streamlit as st
 import pandas as pd
 import requests
 from PIL import Image
-from streamlit_drawable_canvas import st_canvas
 
 import document
 import excel_import
+from signature_pad import signature_pad
 
 API_BASE = "http://localhost:8000/api"
 REFRESH_COOKIE = "welfare_refresh_token"
@@ -30,18 +29,12 @@ def _encode_photo(camera_file) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def _encode_signature(canvas_result) -> str:
-    """서명 캔버스에 그린 내용을 base64 PNG로 바꿉니다. 아무것도 안 그렸으면(흰 배경
-    그대로) 빈 문자열을 돌려줘서, DB에 빈 서명 이미지가 저장되지 않게 합니다."""
-    if canvas_result is None or canvas_result.image_data is None:
+def _encode_signature(data_url: str) -> str:
+    """signature_pad()가 돌려준 "data:image/png;base64,...." 문자열에서
+    base64 부분만 뽑아냅니다. 아무것도 안 그렸으면 빈 문자열입니다."""
+    if not data_url or "," not in data_url:
         return ""
-    arr = canvas_result.image_data.astype("uint8")
-    if np.std(arr[:, :, :3]) < 1:
-        return ""
-    img = Image.fromarray(arr, mode="RGBA").convert("RGB")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode("ascii")
+    return data_url.split(",", 1)[1]
 
 st.set_page_config(page_title="복지관 회원 관리 (통합 시스템)", page_icon="🤝", layout="wide")
 
@@ -195,8 +188,12 @@ if menu == "회원 목록":
 # ====================================================================
 elif menu == "신규 회원 등록":
     st.subheader("신규 회원 등록")
+    st.caption(
+        "실제 이용신청서와 비슷한 순서로 배치했습니다. 사진·서명은 아래 폼 안에서 바로 찍고 그릴 수 있고, "
+        "주소 검색·기존 이력 확인만 Streamlit 제약상 버튼이 필요해서 폼 바깥에 따로 있습니다."
+    )
 
-    with st.expander("🔎 기존 등록 이력 확인 (이름 + 생년월일)"):
+    with st.expander("🔎 기존 등록 이력 확인 (이름 + 생년월일)", expanded=False):
         st.caption("예전에 등록했다가 탈퇴한 회원인지, 이미 등록되어 있는 회원인지 확인합니다.")
         check_name = st.text_input("성명", key="check_name")
         check_birth = st.text_input("생년월일 (예: 1990-01-01)", key="check_birth")
@@ -233,12 +230,23 @@ elif menu == "신규 회원 등록":
             if not dup_results:
                 st.caption("일치하는 기록이 없습니다.")
 
-    with st.expander("🔍 주소 검색"):
-        addr_kw = st.text_input("지번 또는 건물명 입력", key="addr_kw_add")
-        if st.button("주소 검색", key="addr_btn_add"):
-            if addr_kw:
-                res = requests.get(f"{API_BASE}/address/search", params={"keyword": addr_kw}, headers=AUTH_HEADERS)
-                st.session_state["addr_results_add"] = handle_response(res)
+    prefill = st.session_state.get("prefill_client", {})
+    if prefill:
+        st.success(f"'{prefill.get('member_no', '?')}' 회원의 예전 정보를 불러왔습니다. 내용을 확인하고 필요한 부분만 고쳐서 등록하세요.")
+        if st.button("불러온 정보 지우기"):
+            st.session_state.pop("prefill_client", None)
+            st.rerun()
+
+    with st.container(border=True):
+        st.markdown("**📍 주소 검색** (검색 후 폼 안의 주소 칸에 자동으로 채워집니다)")
+        addr_col1, addr_col2 = st.columns([3, 1])
+        with addr_col1:
+            addr_kw = st.text_input("지번 또는 건물명 입력", key="addr_kw_add", label_visibility="collapsed", placeholder="지번 또는 건물명 입력")
+        with addr_col2:
+            addr_search_clicked = st.button("검색", key="addr_btn_add", use_container_width=True)
+        if addr_search_clicked and addr_kw:
+            res = requests.get(f"{API_BASE}/address/search", params={"keyword": addr_kw}, headers=AUTH_HEADERS)
+            st.session_state["addr_results_add"] = handle_response(res)
 
         if st.session_state.get("addr_results_add"):
             results = st.session_state["addr_results_add"]
@@ -251,56 +259,32 @@ elif menu == "신규 회원 등록":
                     return f"{place_part}{r['road_address']}{zip_part}"
 
                 options = {_label(r): r["road_address"] for r in results}
-                picked = st.selectbox("주소 선택", options.keys(), key="pick_add")
-                if st.button("이 주소로 채우기", key="fill_add"):
-                    st.session_state["prefilled_addr"] = options[picked]
-                    del st.session_state["addr_results_add"]
-                    st.rerun()
-
-    prefill = st.session_state.get("prefill_client", {})
-    if prefill:
-        st.success(f"'{prefill.get('member_no', '?')}' 회원의 예전 정보를 불러왔습니다. 내용을 확인하고 필요한 부분만 고쳐서 등록하세요.")
-        if st.button("불러온 정보 지우기"):
-            st.session_state.pop("prefill_client", None)
-            st.rerun()
-
-    with st.expander("📷 회원 사진 촬영 (선택, 서류 작성용)"):
-        st.caption("태블릿/휴대폰으로 접속했다면 바로 카메라가 열립니다.")
-        camera_photo = st.camera_input("사진 촬영", key="reg_camera", label_visibility="collapsed")
-
-    with st.expander("✍️ 서명 (선택, 서류에 반영됩니다)"):
-        st.caption("아래 네모 칸에 손가락이나 마우스로 서명해주세요. 다시 그리면 이전 서명은 지워집니다.")
-        signature_canvas = st_canvas(
-            fill_color="rgba(255, 255, 255, 0)",
-            stroke_width=3,
-            stroke_color="#000000",
-            background_color="#FFFFFF",
-            height=150,
-            width=400,
-            drawing_mode="freedraw",
-            key="reg_signature",
-        )
+                pick_col1, pick_col2 = st.columns([3, 1])
+                with pick_col1:
+                    picked = st.selectbox("주소 선택", options.keys(), key="pick_add", label_visibility="collapsed")
+                with pick_col2:
+                    if st.button("이 주소로 채우기", key="fill_add", use_container_width=True):
+                        st.session_state["prefilled_addr"] = options[picked]
+                        del st.session_state["addr_results_add"]
+                        st.rerun()
 
     with st.form("add_form", clear_on_submit=True):
-        name = st.text_input("성명 *", value=prefill.get("name", ""))
-        gender = st.radio("성별", ["남", "여"], horizontal=True, index=1 if prefill.get("gender") == "여" else 0)
-        birth_date = st.text_input("생년월일 (예: 1990-01-01)", value=prefill.get("birth_date", ""))
+        st.markdown("### 회원 등록 신청서")
+
+        photo_col, id_col = st.columns([1, 3])
+        with photo_col:
+            st.caption("사진 (선택)")
+            camera_photo = st.camera_input("사진 촬영", key="reg_camera", label_visibility="collapsed")
+        with id_col:
+            name = st.text_input("성명 *", value=prefill.get("name", ""))
+            g_col, b_col = st.columns(2)
+            with g_col:
+                gender = st.radio("성별", ["남", "여"], horizontal=True, index=1 if prefill.get("gender") == "여" else 0)
+            with b_col:
+                birth_date = st.text_input("생년월일 (예: 1990-01-01)", value=prefill.get("birth_date", ""))
+            phone = st.text_input("전화번호 (010-0000-0000)", value=prefill.get("phone", ""))
+
         address = st.text_input("주소", value=prefill.get("address") or st.session_state.get("prefilled_addr", ""))
-        phone = st.text_input("전화번호 (010-0000-0000)", value=prefill.get("phone", ""))
-        welfare_type_options = ["일반", "차상위", "수급자"]
-        welfare_type = st.selectbox(
-            "회원 구분", welfare_type_options,
-            index=welfare_type_options.index(prefill["welfare_type"]) if prefill.get("welfare_type") in welfare_type_options else 0,
-        )
-        household_types = st.multiselect(
-            "가구 유형 (해당 사항 모두 선택)", HOUSEHOLD_TYPE_OPTIONS,
-            default=[h for h in (prefill.get("household_types") or "").split(",") if h in HOUSEHOLD_TYPE_OPTIONS],
-        )
-        has_disability = st.radio(
-            "장애 여부", ["아니오", "예"], horizontal=True,
-            index=1 if prefill.get("has_disability") == "예" else 0,
-        )
-        disability_type = st.text_input("장애 유형/정도 (있는 경우)", value=prefill.get("disability_type", ""))
 
         st.markdown("**비상연락망**")
         ec_col1, ec_col2, ec_col3 = st.columns(3)
@@ -310,6 +294,17 @@ elif menu == "신규 회원 등록":
             emergency_contact_relation = st.text_input("관계", value=prefill.get("emergency_contact_relation", ""), key="ec_rel")
         with ec_col3:
             emergency_contact_phone = st.text_input("연락처", value=prefill.get("emergency_contact_phone", ""), key="ec_phone")
+
+        st.divider()
+        wt_col1, wt_col2 = st.columns(2)
+        with wt_col1:
+            welfare_type_options = ["일반", "차상위", "수급자"]
+            welfare_type = st.selectbox(
+                "생활구분(회원 구분)", welfare_type_options,
+                index=welfare_type_options.index(prefill["welfare_type"]) if prefill.get("welfare_type") in welfare_type_options else 0,
+            )
+        with wt_col2:
+            counselor = st.text_input("상담자(담당자명)", value=prefill.get("counselor", ""))
 
         jr_col1, jr_col2 = st.columns(2)
         with jr_col1:
@@ -321,39 +316,52 @@ elif menu == "신규 회원 등록":
                 index=join_route_options.index(_prev_route_base) if _prev_route_base in join_route_options else 0,
             )
         with jr_col2:
-            counselor = st.text_input("상담자(담당자명)", value=prefill.get("counselor", ""))
+            household_types = st.multiselect(
+                "동거형태(가구 유형, 해당 사항 모두 선택)", HOUSEHOLD_TYPE_OPTIONS,
+                default=[h for h in (prefill.get("household_types") or "").split(",") if h in HOUSEHOLD_TYPE_OPTIONS],
+            )
         join_route_detail = ""
         if join_route_pick in ("관공서 의뢰", "기타"):
             join_route_detail = st.text_input(f"{join_route_pick} - 사유/내용", key="join_route_detail")
 
+        st.divider()
+        dis_col1, dis_col2 = st.columns([1, 2])
+        with dis_col1:
+            has_disability = st.radio(
+                "장애 유무", ["아니오", "예"], horizontal=True,
+                index=1 if prefill.get("has_disability") == "예" else 0,
+            )
+        with dis_col2:
+            disability_type = st.text_input("장애 유형/정도", value=prefill.get("disability_type", ""), disabled=(has_disability == "아니오"))
+
         ill_col1, ill_col2 = st.columns([1, 2])
         with ill_col1:
             has_illness = st.radio("질병 유무", ["없다", "있다"], horizontal=True)
-        illness_type = ""
-        if has_illness == "있다":
-            with ill_col2:
-                illness_picked = st.multiselect("질병 종류", ILLNESS_OPTIONS, key="illness_picked")
-            illness_etc = st.text_input("기타 질병 (있는 경우)", key="illness_etc")
-            illness_type = ",".join(illness_picked + ([illness_etc.strip()] if illness_etc.strip() else []))
+        with ill_col2:
+            illness_picked = st.multiselect("질병 종류", ILLNESS_OPTIONS, key="illness_picked", disabled=(has_illness == "없다"))
+        illness_etc = st.text_input("기타 질병", key="illness_etc", disabled=(has_illness == "없다"))
+        illness_type = ",".join(illness_picked + ([illness_etc.strip()] if illness_etc.strip() else [])) if has_illness == "있다" else ""
 
         car_col1, car_col2 = st.columns([1, 2])
         with car_col1:
             has_career = st.radio("경력(전 직업) 유무", ["없다", "있다"], horizontal=True)
-        career_type = ""
-        if has_career == "있다":
-            with car_col2:
-                career_picked = st.multiselect("전 직업 종류", CAREER_OPTIONS, key="career_picked")
-            career_etc = st.text_input("기타 직업 (있는 경우)", key="career_etc")
-            career_type = ",".join(career_picked + ([career_etc.strip()] if career_etc.strip() else []))
+        with car_col2:
+            career_picked = st.multiselect("전 직업 종류", CAREER_OPTIONS, key="career_picked", disabled=(has_career == "없다"))
+        career_etc = st.text_input("기타 직업", key="career_etc", disabled=(has_career == "없다"))
+        career_type = ",".join(career_picked + ([career_etc.strip()] if career_etc.strip() else [])) if has_career == "있다" else ""
 
         note = st.text_area("비고", value=prefill.get("note", ""))
 
+        st.divider()
         st.markdown("**개인정보 수집 및 이용 동의**")
         st.info(document.consent_summary_markdown())
         consent_personal = st.checkbox("개인정보(성명, 생년월일, 연락처, 주소 등) 수집·이용에 동의합니다. (필수)")
         consent_sensitive = st.checkbox("건강상태 등 민감정보 수집·이용에 동의합니다. (필수)")
         consent_third_party = st.checkbox("복지서비스 연계를 위한 관계기관 제3자 제공에 동의합니다. (필수)")
         consent_portrait = st.checkbox("사진·영상 촬영 및 활용(초상권)에 동의합니다. (선택)")
+
+        st.markdown("**서명** (아래 네모 칸에 손가락/마우스로 서명, 다시 그리면 이전 서명은 지워집니다)")
+        signature_data_url = signature_pad(key="reg_signature")
 
         submitted = st.form_submit_button("등록하기", use_container_width=True)
 
@@ -370,7 +378,7 @@ elif menu == "신규 회원 등록":
                 "has_disability": has_disability,
                 "disability_type": disability_type.strip() if has_disability == "예" else "",
                 "photo_data": _encode_photo(camera_photo),
-                "signature_data": _encode_signature(signature_canvas),
+                "signature_data": _encode_signature(signature_data_url),
                 "emergency_contact_name": emergency_contact_name.strip(),
                 "emergency_contact_relation": emergency_contact_relation.strip(),
                 "emergency_contact_phone": emergency_contact_phone.strip(),
@@ -539,44 +547,43 @@ elif menu == "회원 수정":
                 client = handle_response(client_res)
 
                 if client:
-                    if client.get("photo_data"):
-                        st.image(base64.b64decode(client["photo_data"]), caption="현재 등록된 사진", width=150)
-                    with st.expander("📷 사진 다시 촬영 (새로 찍으면 기존 사진을 대체합니다)"):
-                        e_camera_photo = st.camera_input(
-                            "사진 촬영", key=f"edit_camera_{selected_id}", label_visibility="collapsed"
-                        )
-
-                    if client.get("signature_data"):
-                        st.image(base64.b64decode(client["signature_data"]), caption="현재 등록된 서명", width=200)
-                    with st.expander("✍️ 서명 다시 받기 (새로 그리면 기존 서명을 대체합니다)"):
-                        e_signature_canvas = st_canvas(
-                            fill_color="rgba(255, 255, 255, 0)",
-                            stroke_width=3,
-                            stroke_color="#000000",
-                            background_color="#FFFFFF",
-                            height=150,
-                            width=400,
-                            drawing_mode="freedraw",
-                            key=f"edit_signature_{selected_id}",
-                        )
-
                     with st.form("edit_form"):
-                        e_name = st.text_input("성명", value=client["name"])
-                        e_gender = st.radio("성별", ["남", "여"], horizontal=True, index=0 if client["gender"]=="남" else 1)
-                        e_birth = st.text_input("생년월일", value=client["birth_date"])
+                        st.markdown("### 회원 등록 신청서 (수정)")
+                        photo_col, id_col = st.columns([1, 3])
+                        with photo_col:
+                            if client.get("photo_data"):
+                                st.image(base64.b64decode(client["photo_data"]), caption="현재 사진", width=120)
+                            st.caption("새로 찍으면 기존 사진을 대체합니다")
+                            e_camera_photo = st.camera_input(
+                                "사진 촬영", key=f"edit_camera_{selected_id}", label_visibility="collapsed"
+                            )
+                        with id_col:
+                            e_name = st.text_input("성명", value=client["name"])
+                            g_col, b_col = st.columns(2)
+                            with g_col:
+                                e_gender = st.radio("성별", ["남", "여"], horizontal=True, index=0 if client["gender"]=="남" else 1)
+                            with b_col:
+                                e_birth = st.text_input("생년월일", value=client["birth_date"])
+                            e_phone = st.text_input("전화번호", value=client["phone"])
+
                         e_addr = st.text_input("주소", value=client["address"])
-                        e_phone = st.text_input("전화번호", value=client["phone"])
-                        e_type = st.selectbox("회원 구분", ["일반", "차상위", "수급자"], index=["일반", "차상위", "수급자"].index(client["welfare_type"] if client["welfare_type"] in ["일반", "차상위", "수급자"] else "exceptions"))
+                        e_type = st.selectbox("생활구분(회원 구분)", ["일반", "차상위", "수급자"], index=["일반", "차상위", "수급자"].index(client["welfare_type"] if client["welfare_type"] in ["일반", "차상위", "수급자"] else "exceptions"))
                         e_household = st.multiselect(
-                            "가구 유형 (해당 사항 모두 선택)",
+                            "동거형태(가구 유형, 해당 사항 모두 선택)",
                             HOUSEHOLD_TYPE_OPTIONS,
                             default=[h for h in client.get("household_types", "").split(",") if h in HOUSEHOLD_TYPE_OPTIONS],
                         )
-                        e_has_disability = st.radio(
-                            "장애 여부", ["아니오", "예"], horizontal=True,
-                            index=1 if client.get("has_disability") == "예" else 0,
-                        )
-                        e_disability_type = st.text_input("장애 유형/정도 (있는 경우)", value=client.get("disability_type", ""))
+                        e_dis_col1, e_dis_col2 = st.columns([1, 2])
+                        with e_dis_col1:
+                            e_has_disability = st.radio(
+                                "장애 유무", ["아니오", "예"], horizontal=True,
+                                index=1 if client.get("has_disability") == "예" else 0,
+                            )
+                        with e_dis_col2:
+                            e_disability_type = st.text_input(
+                                "장애 유형/정도", value=client.get("disability_type", ""),
+                                disabled=(e_has_disability == "아니오"),
+                            )
 
                         st.markdown("**비상연락망**")
                         eec1, eec2, eec3 = st.columns(3)
@@ -623,6 +630,11 @@ elif menu == "회원 수정":
 
                         e_note = st.text_area("비고", value=client["note"])
 
+                        if client.get("signature_data"):
+                            st.image(base64.b64decode(client["signature_data"]), caption="현재 서명", width=180)
+                        st.markdown("**서명** (새로 그리면 기존 서명을 대체합니다)")
+                        e_signature_data_url = signature_pad(key=f"edit_signature_{selected_id}")
+
                         edit_sub = st.form_submit_button("수정하기", use_container_width=True)
 
                     if edit_sub:
@@ -633,7 +645,7 @@ elif menu == "회원 수정":
                             "has_disability": e_has_disability,
                             "disability_type": e_disability_type.strip() if e_has_disability == "예" else "",
                             "photo_data": _encode_photo(e_camera_photo),
-                            "signature_data": _encode_signature(e_signature_canvas),
+                            "signature_data": _encode_signature(e_signature_data_url),
                             "emergency_contact_name": e_emg_name.strip(),
                             "emergency_contact_relation": e_emg_rel.strip(),
                             "emergency_contact_phone": e_emg_phone.strip(),
