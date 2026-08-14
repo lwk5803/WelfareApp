@@ -4,11 +4,14 @@ import io
 import time
 
 import extra_streamlit_components as stx
+import numpy as np
 import streamlit as st
 import pandas as pd
 import requests
 from PIL import Image
+from streamlit_drawable_canvas import st_canvas
 
+import document
 import excel_import
 
 API_BASE = "http://localhost:8000/api"
@@ -24,6 +27,20 @@ def _encode_photo(camera_file) -> str:
     img.thumbnail((800, 800))
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="JPEG", quality=80)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def _encode_signature(canvas_result) -> str:
+    """서명 캔버스에 그린 내용을 base64 PNG로 바꿉니다. 아무것도 안 그렸으면(흰 배경
+    그대로) 빈 문자열을 돌려줘서, DB에 빈 서명 이미지가 저장되지 않게 합니다."""
+    if canvas_result is None or canvas_result.image_data is None:
+        return ""
+    arr = canvas_result.image_data.astype("uint8")
+    if np.std(arr[:, :, :3]) < 1:
+        return ""
+    img = Image.fromarray(arr, mode="RGBA").convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 st.set_page_config(page_title="복지관 회원 관리 (통합 시스템)", page_icon="🤝", layout="wide")
@@ -251,6 +268,19 @@ elif menu == "신규 회원 등록":
         st.caption("태블릿/휴대폰으로 접속했다면 바로 카메라가 열립니다.")
         camera_photo = st.camera_input("사진 촬영", key="reg_camera", label_visibility="collapsed")
 
+    with st.expander("✍️ 서명 (선택, 서류에 반영됩니다)"):
+        st.caption("아래 네모 칸에 손가락이나 마우스로 서명해주세요. 다시 그리면 이전 서명은 지워집니다.")
+        signature_canvas = st_canvas(
+            fill_color="rgba(255, 255, 255, 0)",
+            stroke_width=3,
+            stroke_color="#000000",
+            background_color="#FFFFFF",
+            height=150,
+            width=400,
+            drawing_mode="freedraw",
+            key="reg_signature",
+        )
+
     with st.form("add_form", clear_on_submit=True):
         name = st.text_input("성명 *", value=prefill.get("name", ""))
         gender = st.radio("성별", ["남", "여"], horizontal=True, index=1 if prefill.get("gender") == "여" else 0)
@@ -319,6 +349,7 @@ elif menu == "신규 회원 등록":
         note = st.text_area("비고", value=prefill.get("note", ""))
 
         st.markdown("**개인정보 수집 및 이용 동의**")
+        st.info(document.consent_summary_markdown())
         consent_personal = st.checkbox("개인정보(성명, 생년월일, 연락처, 주소 등) 수집·이용에 동의합니다. (필수)")
         consent_sensitive = st.checkbox("건강상태 등 민감정보 수집·이용에 동의합니다. (필수)")
         consent_third_party = st.checkbox("복지서비스 연계를 위한 관계기관 제3자 제공에 동의합니다. (필수)")
@@ -339,6 +370,7 @@ elif menu == "신규 회원 등록":
                 "has_disability": has_disability,
                 "disability_type": disability_type.strip() if has_disability == "예" else "",
                 "photo_data": _encode_photo(camera_photo),
+                "signature_data": _encode_signature(signature_canvas),
                 "emergency_contact_name": emergency_contact_name.strip(),
                 "emergency_contact_relation": emergency_contact_relation.strip(),
                 "emergency_contact_phone": emergency_contact_phone.strip(),
@@ -359,6 +391,7 @@ elif menu == "신규 회원 등록":
                 st.session_state.pop("prefilled_addr", None)
                 st.session_state.pop("prefill_client", None)
                 st.session_state.pop("reg_camera", None)
+                st.session_state.pop("reg_signature", None)
                 st.rerun()
             else:
                 st.error(res.json().get("detail"))
@@ -513,6 +546,20 @@ elif menu == "회원 수정":
                             "사진 촬영", key=f"edit_camera_{selected_id}", label_visibility="collapsed"
                         )
 
+                    if client.get("signature_data"):
+                        st.image(base64.b64decode(client["signature_data"]), caption="현재 등록된 서명", width=200)
+                    with st.expander("✍️ 서명 다시 받기 (새로 그리면 기존 서명을 대체합니다)"):
+                        e_signature_canvas = st_canvas(
+                            fill_color="rgba(255, 255, 255, 0)",
+                            stroke_width=3,
+                            stroke_color="#000000",
+                            background_color="#FFFFFF",
+                            height=150,
+                            width=400,
+                            drawing_mode="freedraw",
+                            key=f"edit_signature_{selected_id}",
+                        )
+
                     with st.form("edit_form"):
                         e_name = st.text_input("성명", value=client["name"])
                         e_gender = st.radio("성별", ["남", "여"], horizontal=True, index=0 if client["gender"]=="남" else 1)
@@ -586,6 +633,7 @@ elif menu == "회원 수정":
                             "has_disability": e_has_disability,
                             "disability_type": e_disability_type.strip() if e_has_disability == "예" else "",
                             "photo_data": _encode_photo(e_camera_photo),
+                            "signature_data": _encode_signature(e_signature_canvas),
                             "emergency_contact_name": e_emg_name.strip(),
                             "emergency_contact_relation": e_emg_rel.strip(),
                             "emergency_contact_phone": e_emg_phone.strip(),

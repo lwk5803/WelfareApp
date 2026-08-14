@@ -21,6 +21,49 @@ _HEADER_SHADE = "F2CFE3"  # 종이 서식의 분홍색 헤더 칸과 비슷한 �
 _TITLE_COLOR = RGBColor(0xE0, 0x5A, 0x00)
 
 
+# 개인정보 동의서 내용입니다. docx 문서(2페이지)와 등록 화면(app_frontend.py)이
+# 똑같은 문구를 써야 하므로, 여기 한 곳에만 적어두고 양쪽에서 가져다 씁니다
+# (내용을 고칠 때 한 곳만 고치면 되도록).
+def personal_info_rows() -> list[tuple[str, str]]:
+    return [
+        ("수집·이용 목적", f"{ORG_NAME} 회원가입(사회복지시설정보시스템)과 프로그램 참여 및 서비스 제공·관리"),
+        ("수집하는 기본 개인정보 항목", "성명, 성별, 생년월일, 주소, 연락처 등"),
+        ("수집하는 민감정보 항목", "건강정보(질병·장애 유무), 소득 및 재산정보, 보호구분 등"),
+        ("보유·이용 기간", "이용신청서 제출 시부터 회원 자격 상실 시까지"),
+        ("동의거부 권리 및 제한사항", "귀하는 동의를 거부할 권리가 있으며, 거부 시 회원가입과 서비스 이용이 제한될 수 있습니다."),
+    ]
+
+
+def third_party_rows() -> list[tuple[str, str]]:
+    return [
+        ("제공받는 자", "해당 지자체 행정기관(시청, 구청, 주민센터 등) 및 사회복지서비스 제공기관"),
+        ("이용 목적", "관계법령에 따른 제출·요구, 서비스 의뢰, 사업소개·홍보 등 사회복지서비스 이용에 필요한 경우"),
+        ("제공되는 항목", "성명, 성별, 생년월일, 주소, 연락처, 건강정보, 소득 및 재산정보, 보호구분 등"),
+        ("이용·보유 기간", "해당 서비스 지원과 행정사무가 제공되는 기간"),
+        ("동의거부 권리 및 제한사항", "귀하는 동의를 거부할 권리가 있으며, 거부 시 회원가입과 서비스 이용이 제한될 수 있습니다."),
+    ]
+
+
+def portrait_rows() -> list[tuple[str, str]]:
+    return [
+        ("사용·이용 목적", f"{ORG_NAME} 온·오프라인 사업소개 및 홍보, 기록자료 활용"),
+        ("사용·이용 항목", "서비스 이용사진 및 운영사진 등 초상사진저작물"),
+        ("동의거부 권리 및 제한사항", "귀하는 동의를 거부할 권리가 있으며, 거부하셔도 서비스 이용에는 제한이 없습니다."),
+    ]
+
+
+def consent_summary_markdown() -> str:
+    """등록 화면의 체크박스 위에 보여줄, 위 동의서 내용을 요약한 markdown 문구입니다."""
+    return (
+        "- **수집 항목**: 성명·성별·생년월일·주소·연락처(개인정보), 건강정보·소득 및 재산정보·보호구분 등(민감정보)\n"
+        "- **목적**: 회원가입 및 프로그램 참여·서비스 제공/관리\n"
+        "- **보유기간**: 회원 자격 상실 시까지\n"
+        "- **제3자 제공**: 지자체 행정기관·사회복지서비스 제공기관 (서비스 연계 등에 필요한 경우)\n"
+        "- **초상권**: 복지관 사업소개·홍보·기록자료 활용 (선택 동의)\n"
+        "- 위 동의는 거부할 권리가 있으며, 거부 시 회원가입·서비스 이용이 제한될 수 있습니다 (초상권은 거부해도 무방)."
+    )
+
+
 def _shade_cell(cell, hex_color: str):
     """표 칸에 배경색을 칠합니다 (python-docx는 이 기능을 기본 API로 제공하지 않아
     문서 내부 XML을 직접 건드립니다)."""
@@ -130,7 +173,6 @@ def _build_page1(doc: Document, client: dict):
         ("가입경로", client.get("join_route") or "-", "동거형태", client.get("household_types") or "-"),
         ("질병유무", illness_line, "장애유무", disability_line),
         ("경력(전 직업)", career_line, "", ""),
-        ("관심있는 서비스", "", "", ""),
         ("관심있는 것은?", "", "", ""),
         ("상담결과", "", "", ""),
     ]
@@ -175,14 +217,7 @@ def _build_page2(doc: Document, client: dict):
     h1 = doc.add_paragraph()
     h1.add_run("□ 개인정보 및 민감정보 수집·이용 동의").bold = True
     _add_consent_table(
-        doc,
-        [
-            ("수집·이용 목적", f"{ORG_NAME} 회원가입(사회복지시설정보시스템)과 프로그램 참여 및 서비스 제공·관리"),
-            ("수집하는 기본 개인정보 항목", "성명, 성별, 생년월일, 주소, 연락처 등"),
-            ("수집하는 민감정보 항목", "건강정보(질병·장애 유무), 소득 및 재산정보, 보호구분 등"),
-            ("보유·이용 기간", "이용신청서 제출 시부터 회원 자격 상실 시까지"),
-            ("동의거부 권리 및 제한사항", "귀하는 동의를 거부할 권리가 있으며, 거부 시 회원가입과 서비스 이용이 제한될 수 있습니다."),
-        ],
+        doc, personal_info_rows(),
         "개인정보/민감정보 수집·이용 동의 여부",
         _consent_mark(client.get("consent_personal", "")) + " / " + _consent_mark(client.get("consent_sensitive", "")),
     )
@@ -191,14 +226,7 @@ def _build_page2(doc: Document, client: dict):
     h2 = doc.add_paragraph()
     h2.add_run("□ 개인정보 제3자 제공 동의").bold = True
     _add_consent_table(
-        doc,
-        [
-            ("제공받는 자", "해당 지자체 행정기관(시청, 구청, 주민센터 등) 및 사회복지서비스 제공기관"),
-            ("이용 목적", "관계법령에 따른 제출·요구, 서비스 의뢰, 사업소개·홍보 등 사회복지서비스 이용에 필요한 경우"),
-            ("제공되는 항목", "성명, 성별, 생년월일, 주소, 연락처, 건강정보, 소득 및 재산정보, 보호구분 등"),
-            ("이용·보유 기간", "해당 서비스 지원과 행정사무가 제공되는 기간"),
-            ("동의거부 권리 및 제한사항", "귀하는 동의를 거부할 권리가 있으며, 거부 시 회원가입과 서비스 이용이 제한될 수 있습니다."),
-        ],
+        doc, third_party_rows(),
         "개인정보 제3자 제공 동의 여부",
         _consent_mark(client.get("consent_third_party", "")),
     )
@@ -207,12 +235,7 @@ def _build_page2(doc: Document, client: dict):
     h3 = doc.add_paragraph()
     h3.add_run("□ 초상권 사용 및 이용 동의").bold = True
     _add_consent_table(
-        doc,
-        [
-            ("사용·이용 목적", f"{ORG_NAME} 온·오프라인 사업소개 및 홍보, 기록자료 활용"),
-            ("사용·이용 항목", "서비스 이용사진 및 운영사진 등 초상사진저작물"),
-            ("동의거부 권리 및 제한사항", "귀하는 동의를 거부할 권리가 있으며, 거부하셔도 서비스 이용에는 제한이 없습니다."),
-        ],
+        doc, portrait_rows(),
         "초상권 사용·이용 동의 여부",
         _consent_mark(client.get("consent_portrait", "")),
     )
@@ -221,8 +244,20 @@ def _build_page2(doc: Document, client: dict):
     signed_at = (client.get("consent_signed_at") or "")[:10]
     p = doc.add_paragraph(f"동의 확인일: {signed_at or '-'}")
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p2 = doc.add_paragraph(f"신청인: {client.get('name', '')}  (서명 또는 인)")
+
+    p2 = doc.add_paragraph()
     p2.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p2.add_run(f"신청인: {client.get('name', '')}   서명: ")
+    signature_data = client.get("signature_data")
+    if signature_data:
+        try:
+            sig_stream = io.BytesIO(base64.b64decode(signature_data))
+            p2.add_run().add_picture(sig_stream, height=Cm(1.5))
+        except Exception:
+            p2.add_run("(서명 이미지 오류)")
+    else:
+        p2.add_run("(서명 없음)")
+
     doc.add_paragraph()
     _add_org_footer(doc)
 
