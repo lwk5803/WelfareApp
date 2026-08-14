@@ -16,10 +16,10 @@ auth.py
 from functools import lru_cache
 
 import jwt
-import streamlit as st
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from jwt import PyJWKClient
 
+import config
 import supabase_db as db
 
 
@@ -73,12 +73,9 @@ def refresh(refresh_token: str) -> dict:
 
 @lru_cache
 def _jwks_client() -> PyJWKClient:
-    try:
-        jwks_url = st.secrets["SUPABASE_JWKS_URL"]
-    except Exception as e:
-        raise AuthError(
-            "SUPABASE_JWKS_URL이 설정되지 않았습니다. .streamlit/secrets.toml을 확인해주세요."
-        ) from e
+    jwks_url = config.get_secret("SUPABASE_JWKS_URL")
+    if not jwks_url:
+        raise AuthError("SUPABASE_JWKS_URL이 설정되지 않았습니다. .env 파일을 확인해주세요.")
     return PyJWKClient(jwks_url)
 
 
@@ -96,18 +93,30 @@ def _decode_token(token: str) -> dict:
     return payload
 
 
-def require_user(authorization: str = Header(default="")) -> dict:
-    """FastAPI 엔드포인트에서 Depends(require_user)로 쓰면, 로그인된 사용자만 통과시킵니다."""
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
-    token = authorization.removeprefix("Bearer ")
-    try:
-        payload = _decode_token(token)
-    except AuthError as e:
-        raise HTTPException(status_code=401, detail=str(e))
-
+def get_user_from_token(token: str) -> dict:
+    """access_token(JWT) 문자열을 검증하고, 사용자 정보를 돌려줍니다. 실패하면 AuthError를 던집니다."""
+    payload = _decode_token(token)
     user_id = payload["sub"]
     return {"user_id": user_id, "email": payload.get("email", ""), "role": _get_role(user_id)}
+
+
+def require_user(request: Request, authorization: str = Header(default="")) -> dict:
+    """
+    FastAPI 엔드포인트에서 Depends(require_user)로 쓰면, 로그인된 사용자만 통과시킵니다.
+
+    토큰은 두 곳에서 찾습니다: 기존처럼 Authorization: Bearer 헤더(외부/스크립트 호출용),
+    또는 access_token 쿠키(브라우저 화면의 JS fetch 호출용 - 같은 출처라 쿠키가 자동으로
+    실려오므로 프론트에서 토큰을 따로 다루지 않아도 됩니다).
+    """
+    token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
+    if not token:
+        token = request.cookies.get("access_token", "")
+    if not token:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+    try:
+        return get_user_from_token(token)
+    except AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
 
 
 def require_admin(user: dict = Depends(require_user)) -> dict:

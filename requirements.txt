@@ -1,13 +1,13 @@
-streamlit>=1.59.0
-extra-streamlit-components
 pandas
 openpyxl
 jinja2
 requests
 openai
+python-dotenv
 
 fastapi
 uvicorn[standard]
+python-multipart
 supabase
 pydantic
 pyjwt

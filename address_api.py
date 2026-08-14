@@ -9,8 +9,8 @@ address_api.py
     2. [내 애플리케이션] > [애플리케이션 추가하기] 로 앱을 하나 생성
     3. 생성된 앱 > [앱 키] 메뉴에서 "REST API 키" 값을 복사
        (정부 API와 달리 본인인증/승인 절차 없이 즉시 발급됩니다)
-    4. .streamlit/secrets.toml 파일에 아래 줄을 추가:
-           KAKAO_REST_API_KEY = "복사한 REST API 키"
+    4. .env 파일에 아래 줄을 추가:
+           KAKAO_REST_API_KEY=복사한 REST API 키
 
 주의:
     - 이 기능은 인터넷 연결이 반드시 필요합니다. 사내 폐쇄망 환경에서는
@@ -21,7 +21,8 @@ address_api.py
 """
 
 import requests
-import streamlit as st
+
+import config
 
 ADDRESS_SEARCH_URL = "https://dapi.kakao.com/v2/local/search/address.json"
 KEYWORD_SEARCH_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
@@ -33,17 +34,10 @@ class AddressLookupError(Exception):
 
 
 def _get_api_key() -> str:
-    # secrets.toml 파일 자체가 없으면 st.secrets.get()도 FileNotFoundError를 던집니다.
-    # (파일이 없을 때는 "키가 없다"가 아니라 "파일이 없다"는 다른 종류의 에러가 나서,
-    # 이것까지 같이 잡아줘야 합니다.)
-    try:
-        api_key = st.secrets.get("KAKAO_REST_API_KEY")
-    except FileNotFoundError:
-        api_key = None
-
+    api_key = config.get_secret("KAKAO_REST_API_KEY")
     if not api_key:
         raise AddressLookupError(
-            "주소 검색 API 키가 설정되지 않았습니다. .streamlit/secrets.toml에 "
+            "주소 검색 API 키가 설정되지 않았습니다. .env 파일에 "
             "KAKAO_REST_API_KEY를 추가해주세요."
         )
     return api_key
@@ -63,7 +57,7 @@ def _call_kakao(url: str, api_key: str, keyword: str) -> list[dict]:
     # 카카오 API는 키가 잘못됐거나 만료된 경우 401(인증 실패)을 돌려줍니다.
     if response.status_code == 401:
         raise AddressLookupError(
-            "주소 검색 API 키가 유효하지 않습니다. secrets.toml의 KAKAO_REST_API_KEY를 확인해주세요."
+            "주소 검색 API 키가 유효하지 않습니다. .env의 KAKAO_REST_API_KEY를 확인해주세요."
         )
     # 403은 키 자체는 맞지만, 이 앱에서 "카카오맵" 상품이 아직 켜져 있지 않을 때 주로 발생합니다.
     if response.status_code == 403:

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}회원 목록 - 복지관 회원 관리{% endblock %}
+{% block page_header %}회원 목록{% endblock %}
+{% block content %}
+<h1 class="text-xl font-bold text-ink mb-1 flex items-center gap-2"><i data-lucide="list" class="w-5 h-5 text-primary"></i>회원 목록</h1>
+<p class="text-sm text-muted mb-3">등록된 회원을 확인하고 이름으로 검색할 수 있습니다. 카드를 누르면 회원 정보를 수정할 수 있습니다.</p>
+
+<div class="card">
+  <div class="flex flex-wrap items-center gap-3 mb-1">
+    <div class="relative search-box flex-1 min-w-[220px]">
+      <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted"></i>
+      <input type="text" id="search-input" placeholder="이름으로 검색" class="pl-9">
+    </div>
+    <select id="sort-select" class="max-w-[160px]">
+      <option value="recent">최근등록순</option>
+      <option value="name">이름순</option>
+    </select>
+    <span class="text-sm text-muted ml-auto" id="count-caption"></span>
+  </div>
+  <div id="list-error"></div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4" id="list-grid"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/members-list.js"></script>
+{% endblock %}

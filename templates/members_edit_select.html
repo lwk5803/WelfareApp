@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}회원 수정 - 복지관 회원 관리{% endblock %}
+{% block page_header %}정보 수정{% endblock %}
+{% block content %}
+<h1 class="text-xl font-bold text-ink mb-1 flex items-center gap-2"><i data-lucide="edit-3" class="w-5 h-5 text-primary"></i>회원 정보 수정</h1>
+<p class="text-sm text-muted mb-3">수정할 회원의 이름을 입력해 선택하세요.</p>
+<div class="card">
+  <div class="relative search-box">
+    <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted"></i>
+    <input type="text" id="member-search-input" placeholder="이름으로 검색" class="pl-9" autofocus>
+  </div>
+  <div id="member-search-results" class="member-search-results"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+initMemberSearch({
+  inputId: "member-search-input",
+  resultsId: "member-search-results",
+  onSelect: (c) => { window.location.href = `/members/${c.id}/edit`; },
+});
+</script>
+{% endblock %}

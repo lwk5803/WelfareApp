@@ -10,8 +10,8 @@ gov_welfare_api.py
 사용 전 준비:
     1. https://www.data.go.kr 에서 "한국사회보장정보원_중앙부처복지서비스" 활용신청
        (보통 자동승인) 후 인증키 발급
-    2. .streamlit/secrets.toml에 아래 줄 추가:
-           GOV_WELFARE_API_KEY = "발급받은 인증키"
+    2. .env 파일에 아래 줄 추가:
+           GOV_WELFARE_API_KEY=발급받은 인증키
 
 주의: 인터넷 연결이 필요합니다.
 """
@@ -20,7 +20,9 @@ import xml.etree.ElementTree as ET
 from urllib.parse import unquote
 
 import requests
-import streamlit as st
+
+import config
+from ttl_cache import cache_data
 
 LIST_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfarelistV001"
 DETAIL_URL = "https://apis.data.go.kr/B554287/NationalWelfareInformationsV001/NationalWelfaredetailedV001"
@@ -44,7 +46,7 @@ ERROR_MESSAGES = {
     "12": "해당 오픈API 서비스가 없거나 폐기되었습니다.",
     "20": "서비스 접근이 거부되었습니다.",
     "22": "서비스 요청 제한 횟수를 초과했습니다. 잠시 후 다시 시도해주세요.",
-    "30": "등록되지 않은 서비스키입니다. secrets.toml의 GOV_WELFARE_API_KEY를 확인해주세요.",
+    "30": "등록되지 않은 서비스키입니다. .env의 GOV_WELFARE_API_KEY를 확인해주세요.",
     "31": "API 활용기간이 만료되었습니다.",
     "99": "알 수 없는 오류가 발생했습니다.",
 }
@@ -62,14 +64,10 @@ class GovWelfareError(Exception):
 
 
 def _get_api_key() -> str:
-    try:
-        raw_key = st.secrets.get("GOV_WELFARE_API_KEY")
-    except FileNotFoundError:
-        raw_key = None
-
+    raw_key = config.get_secret("GOV_WELFARE_API_KEY")
     if not raw_key:
         raise GovWelfareError(
-            "공공데이터 복지서비스 API 키가 설정되지 않았습니다. .streamlit/secrets.toml에 "
+            "공공데이터 복지서비스 API 키가 설정되지 않았습니다. .env 파일에 "
             "GOV_WELFARE_API_KEY를 추가해주세요."
         )
     return unquote(raw_key)
@@ -130,7 +128,7 @@ def _request_xml(url: str, params: dict) -> ET.Element:
     return root
 
 
-@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+@cache_data(ttl=CACHE_TTL_SECONDS)
 def fetch_welfare_list(
     age: int | None = None,
     welfare_type: str | None = None,
@@ -183,7 +181,7 @@ def fetch_welfare_list(
     return services
 
 
-@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+@cache_data(ttl=CACHE_TTL_SECONDS)
 def fetch_welfare_detail(serv_id: str) -> dict:
     """
     특정 서비스(serv_id)의 상세 정보를 가져옵니다.
@@ -314,7 +312,7 @@ def split_general_and_special(
     return general, special
 
 
-@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+@cache_data(ttl=CACHE_TTL_SECONDS)
 def fetch_local_welfare_list(
     ctpv_nm: str | None = None,
     sgg_nm: str | None = None,
@@ -383,7 +381,7 @@ def fetch_local_welfare_list(
     return services
 
 
-@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+@cache_data(ttl=CACHE_TTL_SECONDS)
 def fetch_local_welfare_detail(serv_id: str) -> dict:
     """
     특정 지자체 서비스(serv_id)의 상세 정보를 가져옵니다.

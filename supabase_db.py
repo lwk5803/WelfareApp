@@ -5,20 +5,21 @@ database.py(SQLite)와 동일한 함수 시그니처로, Supabase(Postgres)를 �
 버전입니다. main.py에서 `import database as db` 대신 이 파일을 쓰면
 나머지 코드는 그대로 동작합니다.
 
-Supabase 접속 정보는 .streamlit/secrets.toml의 SUPABASE_URL / SUPABASE_SECRET_KEY를
+Supabase 접속 정보는 .env 파일의 SUPABASE_URL / SUPABASE_SECRET_KEY를
 사용합니다 (service_role 키이므로 RLS를 우회하고, 이 백엔드 안에서만 써야 합니다).
 """
 
 from datetime import datetime, timezone
 
 import pandas as pd
-import streamlit as st
 from postgrest.exceptions import APIError
 from supabase import create_client, Client
 
+import config
+
 CLIENT_COLUMNS = [
     "id", "member_no", "name", "gender", "birth_date", "address",
-    "phone", "welfare_type", "note", "created_at",
+    "phone", "welfare_type", "note", "created_at", "updated_at",
     "household_types", "has_disability", "disability_type",
     "emergency_contact_name", "emergency_contact_relation", "emergency_contact_phone",
     "join_route", "has_illness", "illness_type", "has_career", "career_type", "counselor",
@@ -45,14 +46,13 @@ def _supabase() -> Client:
     빈 목록을, 등록은 알 수 없는 오류를 돌려주는 문제가 있었습니다. 매번 새로
     만들면 이 문제가 사라집니다 - 이 앱 규모(직원 몇 명)에서는 성능 손해도 미미합니다.
     """
-    try:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_SECRET_KEY"]
-    except Exception as e:
+    url = config.get_secret("SUPABASE_URL")
+    key = config.get_secret("SUPABASE_SECRET_KEY")
+    if not url or not key:
         raise DatabaseError(
-            "Supabase 접속 정보가 없습니다. .streamlit/secrets.toml에 "
+            "Supabase 접속 정보가 없습니다. .env 파일에 "
             "SUPABASE_URL / SUPABASE_SECRET_KEY를 추가해주세요."
-        ) from e
+        )
     return create_client(url, key)
 
 
@@ -134,7 +134,8 @@ def add_client(
     now = datetime.now(timezone.utc).isoformat()
     payload = {
         "name": name, "gender": gender, "birth_date": birth_date, "address": address,
-        "phone": phone, "welfare_type": welfare_type, "note": note, "created_at": now,
+        "phone": phone, "welfare_type": welfare_type, "note": note,
+        "created_at": now, "updated_at": now,
         "household_types": household_types, "has_disability": has_disability,
         "disability_type": disability_type, "photo_data": photo_data,
         "signature_data": signature_data,
@@ -164,11 +165,13 @@ def update_client(
 ):
     """
     기존 회원 정보를 수정합니다 (동의 항목은 건드리지 않습니다). photo_data/signature_data는
-    새로 촬영·서명했을 때만 값이 오므로, 비어있으면 기존 값을 그대로 둡니다.
+    새로 촬영·서명했을 때만 값이 오므로, 비어있으면 기존 값을 그대로 둡니다. updated_at은
+    수정할 때마다 현재 시각으로 갱신합니다 - "등록 후 1년간 정보 갱신이 없는 회원" 안내의 기준이 됩니다.
     """
     payload = {
         "name": name, "gender": gender, "birth_date": birth_date, "address": address,
         "phone": phone, "welfare_type": welfare_type, "note": note,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
         "household_types": household_types, "has_disability": has_disability,
         "disability_type": disability_type,
         "emergency_contact_name": emergency_contact_name,

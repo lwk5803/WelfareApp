@@ -1,12 +1,18 @@
+import json
+import re
 import threading
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
 import auth
 import document
+import excel_import
 import supabase_db as db
 import stats
 import address_api
@@ -15,13 +21,27 @@ import ai_recommend
 import gov_welfare_api
 import parsers
 
-app = FastAPI(title="복지관 회원 관리 통합 API")
+app = FastAPI(title="복지관 회원 관리 통합 시스템")
+templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+def _markdown_bullets_to_html(markdown_text: str) -> str:
+    """document.consent_summary_markdown()의 `- **굵게** 내용` 형식 줄들을 <ul> HTML로 바꿉니다."""
+    items = []
+    for line in markdown_text.strip().split("\n"):
+        line = line.strip()
+        if line.startswith("- "):
+            line = line[2:]
+        line = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", line)
+        items.append(f"<li>{line}</li>")
+    return "<ul>" + "".join(items) + "</ul>"
 
 @app.on_event("startup")
 def startup_event():
     db.init_db()
 
-# --- 0. 로그인 ---
+# --- 0. 로그인 (API - 외부/스크립트 호출용, 기존 그대로 유지) ---
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -42,6 +62,164 @@ def refresh_login(req: RefreshRequest):
         return auth.refresh(req.refresh_token)
     except auth.AuthError as e:
         raise HTTPException(status_code=401, detail=str(e))
+
+
+# --- 0-1. 화면(Jinja2) 세션: access_token/refresh_token을 httpOnly 쿠키로 관리 ---
+COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30일 - Streamlit 시절의 "로그인 유지" 기간과 동일
+
+
+def _set_auth_cookies(response: Response, auth_data: dict):
+    response.set_cookie(
+        "access_token", auth_data["access_token"],
+        max_age=COOKIE_MAX_AGE, httponly=True, samesite="lax",
+    )
+    response.set_cookie(
+        "refresh_token", auth_data["refresh_token"],
+        max_age=COOKIE_MAX_AGE, httponly=True, samesite="lax",
+    )
+
+
+def _clear_auth_cookies(response: Response):
+    response.delete_cookie("access_token")
+    response.delete_cookie("refresh_token")
+
+
+class _NeedsLogin(Exception):
+    pass
+
+
+@app.exception_handler(_NeedsLogin)
+def _needs_login_handler(request: Request, exc: _NeedsLogin):
+    return RedirectResponse("/login")
+
+
+def get_page_user(request: Request, response: Response) -> dict:
+    """
+    화면(HTML) 라우트 전용 로그인 확인. access_token 쿠키로 먼저 시도하고,
+    만료됐으면 refresh_token 쿠키로 조용히 갱신합니다(예전 Streamlit이 쿠키+세션으로
+    하던 "새로고침해도 로그인 유지"를 서버 쪽에서 재현한 것). 갱신도 실패하면
+    /login으로 리다이렉트합니다.
+    """
+    access_token = request.cookies.get("access_token", "")
+    if access_token:
+        try:
+            payload = auth.get_user_from_token(access_token)
+            return {"email": payload["email"], "role": payload["role"]}
+        except auth.AuthError:
+            pass
+
+    refresh_token = request.cookies.get("refresh_token", "")
+    if refresh_token:
+        try:
+            data = auth.refresh(refresh_token)
+        except auth.AuthError:
+            raise _NeedsLogin()
+        _set_auth_cookies(response, data)
+        return {"email": data["email"], "role": data["role"]}
+
+    raise _NeedsLogin()
+
+
+@app.get("/login")
+def login_page(request: Request):
+    if request.cookies.get("access_token") or request.cookies.get("refresh_token"):
+        return RedirectResponse("/members")
+    return templates.TemplateResponse(request, "login.html", {"error": ""})
+
+
+@app.post("/login")
+def login_submit(request: Request, email: str = Form(...), password: str = Form(...)):
+    try:
+        data = auth.login(email, password)
+    except auth.AuthError as e:
+        return templates.TemplateResponse(request, "login.html", {"error": str(e)})
+    response = RedirectResponse("/members", status_code=303)
+    _set_auth_cookies(response, data)
+    return response
+
+
+@app.get("/logout")
+def logout():
+    response = RedirectResponse("/login")
+    _clear_auth_cookies(response)
+    return response
+
+
+@app.post("/api/session/refresh")
+def session_refresh(request: Request, response: Response):
+    """화면 JS가 fetch로 API를 호출하다 401을 받으면 이걸 호출해 쿠키를 갱신하고 재시도합니다."""
+    refresh_token = request.cookies.get("refresh_token", "")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+    try:
+        data = auth.refresh(refresh_token)
+    except auth.AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    _set_auth_cookies(response, data)
+    return {"email": data["email"], "role": data["role"]}
+
+
+@app.get("/")
+def index_page():
+    return RedirectResponse("/dashboard")
+
+
+@app.get("/dashboard")
+def dashboard_page(request: Request, user: dict = Depends(get_page_user)):
+    return templates.TemplateResponse(request, "dashboard.html", {"user": user})
+
+
+@app.get("/members")
+def members_list_page(request: Request, user: dict = Depends(get_page_user)):
+    return templates.TemplateResponse(request, "members_list.html", {"user": user})
+
+
+@app.get("/members/new")
+def members_new_page(request: Request, user: dict = Depends(get_page_user)):
+    return templates.TemplateResponse(request, "members_new.html", {
+        "user": user,
+        "consent_summary_html": _markdown_bullets_to_html(document.consent_summary_markdown()),
+    })
+
+
+@app.get("/members/edit")
+def members_edit_select_page(request: Request, user: dict = Depends(get_page_user)):
+    """수정할 회원을 먼저 고르는 화면입니다. 고르면 /members/{id}/edit로 이동합니다."""
+    return templates.TemplateResponse(request, "members_edit_select.html", {"user": user})
+
+
+@app.get("/members/{client_id}/edit")
+def members_edit_page(client_id: int, request: Request, user: dict = Depends(get_page_user)):
+    return templates.TemplateResponse(request, "members_edit.html", {
+        "user": user, "client_id": client_id,
+    })
+
+
+@app.get("/members/delete")
+def members_delete_page(request: Request, user: dict = Depends(get_page_user)):
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="관리자만 접근할 수 있습니다.")
+    return templates.TemplateResponse(request, "members_delete.html", {"user": user})
+
+
+@app.get("/documents")
+def documents_page(request: Request, user: dict = Depends(get_page_user)):
+    return templates.TemplateResponse(request, "documents.html", {"user": user})
+
+
+@app.get("/stats")
+def stats_page(request: Request, user: dict = Depends(get_page_user)):
+    return templates.TemplateResponse(request, "stats.html", {"user": user})
+
+
+@app.get("/recommend")
+def recommend_page(request: Request, user: dict = Depends(get_page_user)):
+    return templates.TemplateResponse(request, "recommend.html", {"user": user, "client_id": None})
+
+
+@app.get("/recommend/{client_id}")
+def recommend_client_page(client_id: int, request: Request, user: dict = Depends(get_page_user)):
+    return templates.TemplateResponse(request, "recommend.html", {"user": user, "client_id": client_id})
 
 # --- 1. 회원 관리 (CRUD) ---
 @app.get("/api/clients")
@@ -196,6 +374,78 @@ def check_duplicates(req: DuplicateCheck, user: dict = Depends(auth.require_user
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# --- 1-1. 엑셀 일괄등록 ---
+@app.post("/api/bulk/preview")
+def bulk_preview(file: UploadFile = File(...), user: dict = Depends(auth.require_user)):
+    """
+    업로드한 엑셀 파일의 컬럼 목록과 미리보기(첫 5행)를 돌려줍니다.
+    화면에서는 이 응답을 보고 "어느 엑셀 컬럼이 성명/생년월일/... 인지" 매칭 UI를 그립니다.
+    """
+    try:
+        df = excel_import.read_excel_preview(file.file)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"엑셀 파일을 읽지 못했습니다: {e}")
+    return {
+        "columns": list(df.columns),
+        "preview_rows": df.head(5).fillna("").astype(str).to_dict(orient="records"),
+        "total_rows": len(df),
+    }
+
+
+@app.post("/api/clients/bulk")
+def bulk_create_clients(
+    file: UploadFile = File(...),
+    mapping: str = Form(...),
+    user: dict = Depends(auth.require_user),
+):
+    """
+    엑셀 파일 전체를 서버에서 한 번에 회원으로 등록합니다. mapping은
+    {"name": "엑셀컬럼명", "gender": "(사용 안 함)", ...} 형태의 JSON 문자열입니다.
+    (예전 Streamlit 화면은 이 반복 등록을 브라우저 쪽에서 한 줄씩 API를 호출해 처리했는데,
+    서버에서 한 번에 처리하도록 옮겨서 더 안정적으로 만들었습니다.)
+    """
+    try:
+        field_mapping = json.loads(mapping)
+    except (json.JSONDecodeError, TypeError):
+        raise HTTPException(status_code=400, detail="mapping 형식이 올바르지 않습니다.")
+
+    if field_mapping.get("name") in (None, "", "(사용 안 함)"):
+        raise HTTPException(status_code=400, detail="성명 컬럼은 반드시 매칭해야 합니다.")
+
+    try:
+        df = excel_import.read_excel_preview(file.file)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"엑셀 파일을 읽지 못했습니다: {e}")
+
+    success, skipped, failed_rows, all_warnings = 0, 0, [], []
+    for i, row in df.iterrows():
+        mapped_row = {
+            field: (row[col] if col not in (None, "", "(사용 안 함)") else None)
+            for field, col in field_mapping.items()
+        }
+        normalized, warnings = excel_import.normalize_row(mapped_row)
+        if not normalized["name"]:
+            skipped += 1
+            continue
+        if warnings:
+            all_warnings.append(f"{i + 1}행 ({normalized['name']}): " + " ".join(warnings))
+        try:
+            db.add_client(
+                **normalized,
+                household_types="", has_disability="아니오", disability_type="",
+                consent_personal="동의함", consent_sensitive="동의함",
+                consent_third_party="동의함", consent_portrait="동의안함",
+            )
+            success += 1
+        except db.DatabaseError as e:
+            failed_rows.append(f"{i + 1}행 ({normalized['name']}): {e}")
+
+    return {
+        "success": success, "skipped": skipped,
+        "warnings": all_warnings, "failed": failed_rows,
+    }
+
+
 # --- 2. 주소 및 외부 API (카카오, 공공데이터, 웹검색) ---
 @app.get("/api/address/search")
 def search_address(keyword: str, user: dict = Depends(auth.require_user)):
@@ -234,6 +484,9 @@ def get_stats_charts(user: dict = Depends(auth.require_user)):
             "welfare_type_distribution": stats.build_welfare_type_distribution(df).to_dict(),
             "household_type_distribution": stats.build_household_type_distribution(df).to_dict(),
             "disability_distribution": stats.build_disability_distribution(df).to_dict(),
+            "illness_distribution": stats.build_illness_distribution(df).to_dict(),
+            "career_distribution": stats.build_career_distribution(df).to_dict(),
+            "join_route_distribution": stats.build_join_route_distribution(df).to_dict(),
             "monthly_trend": stats.build_period_trend(df, "월").to_dict(),
         }
     except db.DatabaseError as e:

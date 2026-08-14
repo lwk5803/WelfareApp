@@ -6,11 +6,12 @@
 
 ## 아키텍처
 
-Streamlit(프론트엔드) ↔ FastAPI(백엔드) ↔ Supabase(Postgres) 구조로 동작합니다.
+FastAPI(백엔드 + 화면) ↔ Supabase(Postgres) 구조로 동작합니다. 예전에는 Streamlit으로
+화면을 따로 띄웠는데, 지금은 FastAPI 하나가 API와 화면(Jinja2 템플릿)을 모두 담당합니다.
 
-- `app_frontend.py` — Streamlit 화면. 모든 데이터 처리는 FastAPI 백엔드를 통해서만 합니다.
-- `main.py` — FastAPI 백엔드. 회원 CRUD, 통계, 주소 검색, AI 추천 API를 제공합니다.
-- `supabase_db.py` — Supabase(Postgres) 저장/조회 (database.py와 같은 인터페이스).
+- `main.py` — FastAPI. 회원 CRUD, 통계, 주소 검색, AI 추천 API + 화면 라우트를 모두 제공합니다.
+- `templates/` — 화면(Jinja2 HTML), `static/` — CSS/JS.
+- `supabase_db.py` — Supabase(Postgres) 저장/조회.
 
 ## 설치
 
@@ -20,12 +21,13 @@ pip install -r requirements.txt
 
 ## 실행
 
-백엔드와 프론트엔드를 각각 켭니다 (터미널 두 개).
+서버 하나만 켜면 됩니다.
 
 ```bash
 uvicorn main:app --reload --port 8000
-streamlit run app_frontend.py
 ```
+
+브라우저에서 `http://localhost:8000` 접속하면 됩니다.
 
 ## Supabase 설정
 
@@ -56,21 +58,32 @@ create unique index if not exists idx_clients_phone_unique
     where phone is not null and phone <> '';
 ```
 
+그다음 `sql/` 폴더의 마이그레이션을 파일명 순서(001→009)대로 SQL Editor에서 차례로
+실행하세요. 로그인/권한(`profiles` 테이블), 회원번호 자동부여, 소프트 삭제, 사진/서명
+저장, 가구유형/장애/질병/경력 등 세부 항목, 정보 갱신일(`updated_at`)까지 여기서
+전부 채워집니다. 로그인 계정은 Supabase Authentication > Users에서 만들고, 관리자로
+지정하려면 SQL Editor에서 아래처럼 실행하세요.
+
+```sql
+update profiles set role = 'admin' where email = '담당자 이메일';
+```
+
 ## API 키 설정
 
-프로젝트 루트에 `.streamlit/secrets.toml` 파일을 만들고 아래 값을 채워주세요
+프로젝트 루트에 `.env` 파일을 만들고 아래 값을 채워주세요
 (이 파일은 git에 커밋되지 않습니다).
 
-```toml
-SUPABASE_URL = "..."           # Supabase 프로젝트 URL
-SUPABASE_SECRET_KEY = "..."    # Supabase service_role 키 (백엔드 전용, 절대 프론트에 노출 금지)
+```env
+SUPABASE_URL=...           # Supabase 프로젝트 URL
+SUPABASE_SECRET_KEY=...    # Supabase service_role 키 (백엔드 전용, 절대 프론트에 노출 금지)
+SUPABASE_JWKS_URL=...      # Supabase Auth JWKS URL (로그인 토큰 검증용)
 
-KAKAO_REST_API_KEY = "..."     # 주소 검색 (address_api.py)
-TAVILY_API_KEY = "..."         # 복지 정보 웹 검색 (welfare_search.py)
-GOV_WELFARE_API_KEY = "..."    # 정부 복지 서비스 API - 중앙부처/지자체 (gov_welfare_api.py)
+KAKAO_REST_API_KEY=...     # 주소 검색 (address_api.py)
+TAVILY_API_KEY=...         # 복지 정보 웹 검색 (welfare_search.py)
+GOV_WELFARE_API_KEY=...    # 정부 복지 서비스 API - 중앙부처/지자체 (gov_welfare_api.py)
 
-OPENAI_API_KEY = "..."         # 추천 복지 서비스 - gpt-4o-mini (유료)
-AI_PROVIDER = "openai"         # "openai"(gpt-4o-mini, 유료) 또는 "local"(Ollama, 무료)
+OPENAI_API_KEY=...         # 추천 복지 서비스 - gpt-4o-mini (유료)
+AI_PROVIDER=openai         # "openai"(gpt-4o-mini, 유료) 또는 "local"(Ollama, 무료)
 ```
 
 `AI_PROVIDER = "local"`로 두면 비용 없이 로컬 모델(기본값 Ollama `gemma4`)로 테스트할 수
@@ -94,9 +107,13 @@ AI_PROVIDER = "openai"         # "openai"(gpt-4o-mini, 유료) 또는 "local"(Ol
 
 | 파일 | 역할 |
 | --- | --- |
-| `app_frontend.py` | Streamlit 화면 (FastAPI 백엔드 호출) |
-| `main.py` | FastAPI 백엔드 (회원 CRUD, 통계, 추천 API) |
+| `main.py` | FastAPI (회원 CRUD, 통계, 추천 API + 화면 라우트) |
+| `templates/` | 화면 (Jinja2 HTML) |
+| `static/` | CSS/JS (서명 캔버스, 통계 차트 등) |
+| `auth.py` | 로그인/권한 (Supabase Auth, JWT 검증) |
+| `config.py` | .env에서 API 키 등 시크릿을 읽는 모듈 |
 | `supabase_db.py` | Supabase 저장/조회 |
+| `document.py` | 회원 등록 서류(.docx) 생성 |
 | `parsers.py` | 입력값 정리 |
 | `stats.py` | 회원 통계 계산 |
 | `address_api.py` | 카카오 주소 검색 연동 |
@@ -104,4 +121,6 @@ AI_PROVIDER = "openai"         # "openai"(gpt-4o-mini, 유료) 또는 "local"(Ol
 | `welfare_search.py` | 복지 정보 웹 검색 (Tavily) |
 | `ai_recommend.py` | LLM 기반 복지 서비스 추천 (OpenAI/로컬 Ollama 선택 가능) |
 | `gov_welfare_api.py` | 정부 복지 서비스 API 연동 (중앙부처+지자체), 성별/생애주기 필터링 |
-| `app.py`, `database.py` | 초기 버전 (SQLite 단일 Streamlit 앱, 레거시) |
+| `ttl_cache.py` | 자주 안 바뀌는 API 응답을 잠깐 캐싱하는 TTL 캐시 |
+| `sql/` | Supabase 마이그레이션 (파일명 순서대로 실행) |
+| `docs/DEV_LOG.md` | 날짜별 변경 이력 (비전공자용 설명 포함) |

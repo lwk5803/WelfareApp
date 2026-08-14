@@ -7,14 +7,16 @@ ai_recommend.py를 통해 search_web()을 직접 부르는 방식으로 동작�
 
 사용 전 준비:
     1. https://app.tavily.com 에서 회원가입 후 API 키 발급 (무료 사용량 제공)
-    2. .streamlit/secrets.toml 파일에 아래 줄을 추가:
-           TAVILY_API_KEY = "발급받은 키"
+    2. .env 파일에 아래 줄을 추가:
+           TAVILY_API_KEY=발급받은 키
 
 주의: 이 기능은 인터넷 연결이 반드시 필요합니다.
 """
 
 import requests
-import streamlit as st
+
+import config
+from ttl_cache import cache_data
 
 API_URL = "https://api.tavily.com/search"
 
@@ -30,14 +32,10 @@ class WelfareSearchError(Exception):
 
 
 def _get_api_key() -> str:
-    try:
-        api_key = st.secrets.get("TAVILY_API_KEY")
-    except FileNotFoundError:
-        api_key = None
-
+    api_key = config.get_secret("TAVILY_API_KEY")
     if not api_key:
         raise WelfareSearchError(
-            "복지서비스 검색 API 키가 설정되지 않았습니다. .streamlit/secrets.toml에 "
+            "복지서비스 검색 API 키가 설정되지 않았습니다. .env 파일에 "
             "TAVILY_API_KEY를 추가해주세요."
         )
     return api_key
@@ -103,7 +101,7 @@ def extract_ctpv_sgg(address: str) -> tuple[str, str]:
     return ctpv_nm, sgg_nm
 
 
-@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+@cache_data(ttl=CACHE_TTL_SECONDS)
 def search_web(query: str, max_results: int = 5) -> list[dict]:
     """
     주어진 검색어로 웹을 검색합니다.

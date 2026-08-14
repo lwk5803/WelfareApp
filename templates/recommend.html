@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}맞춤형 복지서비스 추천 - 복지관 회원 관리{% endblock %}
+{% block page_header %}맞춤형 복지서비스 추천{% endblock %}
+{% block content %}
+<h1 class="text-xl font-bold text-ink mb-1 flex items-center gap-2"><i data-lucide="message-square" class="w-5 h-5 text-primary"></i>맞춤형 복지서비스 추천</h1>
+<p class="text-sm text-muted mb-3">공공데이터에서 조회한 정부 복지서비스를 바탕으로 AI가 회원님께 맞는 서비스를 정리해드립니다.</p>
+
+<div class="card mb-4">
+  <div class="relative search-box">
+    <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted"></i>
+    <input type="text" id="member-search-input" placeholder="이름으로 검색" class="pl-9">
+  </div>
+  <div id="member-search-results" class="member-search-results"></div>
+</div>
+
+{% if client_id %}
+<div id="recommend-area"></div>
+{% else %}
+<p class="text-sm text-muted">위에서 회원을 선택하면 추천을 시작할 수 있습니다.</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>const CLIENT_ID = {{ client_id or "null" }};</script>
+<script src="/static/js/recommend.js"></script>
+{% endblock %}

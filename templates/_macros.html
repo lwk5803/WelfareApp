@@ -1,0 +1,26 @@
+{# 공통 Jinja 매크로: 버튼/뱃지/빈 상태/카드. 스타일은 static/css/custom.css의 .btn/.badge/.card 클래스를 씀. #}
+
+{% macro button(text, variant="primary", icon=None, type="button", extra="", id="") %}
+<button type="{{ type }}" {% if id %}id="{{ id }}"{% endif %} class="btn {{ 'btn-' + variant if variant != 'primary' else '' }} {{ extra }}">
+  {% if icon %}<i data-lucide="{{ icon }}"></i>{% endif %}{{ text }}
+</button>
+{% endmacro %}
+
+{% macro badge(text, variant="neutral") %}
+<span class="badge {{ 'badge-' + variant if variant != 'neutral' else '' }}">{{ text }}</span>
+{% endmacro %}
+
+{% macro empty_state(icon, message) %}
+<div class="flex flex-col items-center justify-center gap-3 py-12 text-center">
+  <div class="w-14 h-14 rounded-full bg-primary-light flex items-center justify-center text-primary-dark">
+    <i data-lucide="{{ icon }}" class="w-7 h-7"></i>
+  </div>
+  <p class="text-muted text-sm">{{ message }}</p>
+</div>
+{% endmacro %}
+
+{% macro card() %}
+<div class="card">
+  {{ caller() }}
+</div>
+{% endmacro %}

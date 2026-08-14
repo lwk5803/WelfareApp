@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}회원 통계 - 복지관 회원 관리{% endblock %}
+{% block page_header %}통계{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+{% endblock %}
+{% block content %}
+<h1 class="text-xl font-bold text-ink mb-5 flex items-center gap-2"><i data-lucide="bar-chart-3" class="w-5 h-5 text-primary"></i>회원 통계</h1>
+<div id="stats-error"></div>
+
+<p class="text-xs text-muted mb-2" id="stats-asof"></p>
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4" id="metric-grid"></div>
+
+<div class="card mb-4">
+  <div class="flex flex-wrap items-center gap-3 mb-3">
+    <h3 class="font-semibold text-ink">가입 현황</h3>
+    <div class="flex gap-1 ml-auto">
+      <button type="button" class="btn btn-outline btn-sm period-tab" data-period="일">일별</button>
+      <button type="button" class="btn btn-outline btn-sm period-tab" data-period="월">월별</button>
+      <button type="button" class="btn btn-outline btn-sm period-tab" data-period="년">연도별</button>
+    </div>
+  </div>
+  <div id="date-filter-wrap" class="mb-3 hidden">
+    <input type="date" id="date-filter" class="max-w-[180px]">
+  </div>
+  <div class="flex gap-3 overflow-x-auto pb-1" id="period-strip"></div>
+</div>
+
+<div class="card mb-4">
+  <h3 class="font-semibold text-ink mb-2">월별 신규가입 현황</h3>
+  <div class="chart-box chart-box-lg"><canvas id="chart-monthly"></canvas></div>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-1">
+  <div class="card"><h3 class="font-semibold text-ink mb-2">성별</h3><div class="chart-box"><canvas id="chart-gender"></canvas></div></div>
+  <div class="card"><h3 class="font-semibold text-ink mb-2">회원 구분</h3><div class="chart-box"><canvas id="chart-welfare-type"></canvas></div></div>
+  <div class="card"><h3 class="font-semibold text-ink mb-2">연령대</h3><div class="chart-box"><canvas id="chart-age"></canvas></div></div>
+  <div class="card"><h3 class="font-semibold text-ink mb-2">가구 유형</h3><div class="chart-box"><canvas id="chart-household"></canvas></div></div>
+  <div class="card"><h3 class="font-semibold text-ink mb-2">장애 유무</h3><div class="chart-box"><canvas id="chart-disability"></canvas></div></div>
+  <div class="card"><h3 class="font-semibold text-ink mb-2">질병 유무</h3><div class="chart-box"><canvas id="chart-illness"></canvas></div></div>
+  <div class="card"><h3 class="font-semibold text-ink mb-2">경력 유무</h3><div class="chart-box"><canvas id="chart-career"></canvas></div></div>
+  <div class="card"><h3 class="font-semibold text-ink mb-2">가입경로</h3><div class="chart-box"><canvas id="chart-join-route"></canvas></div></div>
+</div>
+<p class="text-xs text-muted mb-4">가구 유형은 한 회원이 여러 유형에 해당할 수 있어 합계가 전체 회원 수보다 클 수 있습니다.</p>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/stats.js"></script>
+{% endblock %}

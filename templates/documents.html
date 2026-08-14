@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}회원 서류 출력 - 복지관 회원 관리{% endblock %}
+{% block page_header %}서류 출력{% endblock %}
+{% block content %}
+<h1 class="text-xl font-bold text-ink mb-1 flex items-center gap-2"><i data-lucide="file-text" class="w-5 h-5 text-primary"></i>회원 서류 출력</h1>
+<p class="text-sm text-muted mb-3">1페이지 회원 등록 신청서 + 2페이지 개인정보 동의서(.docx)가 생성됩니다. 워드/한글에서 열어 그대로 인쇄하거나 편집할 수 있습니다.</p>
+
+<div class="card">
+  <div class="relative search-box">
+    <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted"></i>
+    <input type="text" id="member-search-input" placeholder="이름으로 검색" class="pl-9">
+  </div>
+  <div id="member-search-results" class="member-search-results"></div>
+  <div id="selected-member" class="mt-4"></div>
+  <div id="doc-result" class="mt-4"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedClient = null;
+
+function renderSelected() {
+  const area = document.getElementById("selected-member");
+  if (!selectedClient) {
+    area.innerHTML = "";
+    return;
+  }
+  area.innerHTML = `
+    <div class="entity-card max-w-md" style="cursor:default;">
+      <div class="flex items-center gap-3">
+        <div class="avatar">${(selectedClient.name || "?").slice(0, 1)}</div>
+        <div>
+          <div class="entity-card-title">${selectedClient.name}</div>
+          <div class="entity-card-sub">${selectedClient.member_no || ""}</div>
+        </div>
+      </div>
+      <button type="button" class="btn btn-block mt-2" id="make-doc-btn"><i data-lucide="file-plus" class="w-4 h-4"></i>서류 만들기</button>
+    </div>`;
+  lucide.createIcons();
+  document.getElementById("make-doc-btn").addEventListener("click", makeDocument);
+}
+
+async function makeDocument() {
+  const resultEl = document.getElementById("doc-result");
+  resultEl.innerHTML = `<p class="text-sm text-muted">만드는 중...</p>`;
+  try {
+    const res = await apiFetch(`/api/clients/${selectedClient.id}/document`);
+    if (!res.ok) throw new Error("서류를 만드는 중 오류가 발생했습니다.");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    resultEl.innerHTML = `<div class="alert alert-success"><i data-lucide="check-circle" class="w-4 h-4 mt-0.5"></i><span>서류가 준비됐습니다.</span></div>`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${selectedClient.member_no || selectedClient.id}_${selectedClient.name}_등록서류.docx`;
+    a.className = "btn btn-block mt-3";
+    a.innerHTML = `<i data-lucide="download" class="w-4 h-4"></i>서류 다운로드 (.docx)`;
+    resultEl.appendChild(a);
+    lucide.createIcons();
+  } catch (e) {
+    resultEl.innerHTML = `<div class="alert alert-danger"><i data-lucide="alert-circle" class="w-4 h-4 mt-0.5"></i><span>서류 생성 오류: ${e.message}</span></div>`;
+    lucide.createIcons();
+  }
+}
+
+initMemberSearch({
+  inputId: "member-search-input",
+  resultsId: "member-search-results",
+  onSelect: (c) => {
+    selectedClient = c;
+    document.getElementById("doc-result").innerHTML = "";
+    renderSelected();
+  },
+});
+</script>
+{% endblock %}

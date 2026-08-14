@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}회원 수정 - 복지관 회원 관리{% endblock %}
+{% block page_header %}정보 수정{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<h1 class="text-xl font-bold text-ink mb-1 flex items-center gap-2"><i data-lucide="edit-3" class="w-5 h-5 text-primary"></i>회원 정보 수정</h1>
+<div id="edit-loading" class="text-sm text-muted mb-4">불러오는 중...</div>
+
+<form id="edit-form" class="card space-y-5 hidden">
+  <div class="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-5">
+    <div>
+      <label>사진</label>
+      <img id="e-photo-current" class="thumb mb-2 hidden">
+      <p class="text-xs text-muted mb-1">새로 찍으면 기존 사진을 대체합니다</p>
+      <input type="file" accept="image/*" capture="environment" id="e-photo">
+      <img id="e-photo-preview" class="thumb mt-2 hidden">
+    </div>
+    <div class="space-y-3">
+      <div><label>성명 *</label><input type="text" id="e-name" required></div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label>성별</label>
+          <div class="flex gap-4 items-center h-[42px]">
+            <label class="flex items-center gap-1.5 text-sm"><input type="radio" name="e-gender" value="남"> 남</label>
+            <label class="flex items-center gap-1.5 text-sm"><input type="radio" name="e-gender" value="여"> 여</label>
+          </div>
+        </div>
+        <div><label>생년월일</label><input type="text" id="e-birth"></div>
+      </div>
+      <div><label>전화번호</label><input type="text" id="e-phone"></div>
+    </div>
+  </div>
+
+  <div><label>주소</label><input type="text" id="e-address"></div>
+
+  <div class="pt-5 border-t-2 border-primary/60">
+    <div class="text-sm font-semibold text-primary-dark uppercase tracking-wide mb-3">비상연락망</div>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div><label>성명</label><input type="text" id="e-ec-name"></div>
+      <div><label>관계</label><input type="text" id="e-ec-rel"></div>
+      <div><label>연락처</label><input type="text" id="e-ec-phone"></div>
+    </div>
+  </div>
+
+  <div class="pt-5 border-t-2 border-primary/60">
+    <div class="text-sm font-semibold text-primary-dark uppercase tracking-wide mb-3">생활 정보</div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+      <div>
+        <label>생활구분(회원 구분)</label>
+        <select id="e-welfare-type">
+          <option value="일반">일반</option>
+          <option value="차상위">차상위</option>
+          <option value="수급자">수급자</option>
+        </select>
+      </div>
+      <div><label>상담자(담당자명)</label><input type="text" id="e-counselor"></div>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+      <div>
+        <label>가입경로</label>
+        <select id="e-join-route">
+          <option value="자진">자진</option>
+          <option value="관공서 의뢰">관공서 의뢰</option>
+          <option value="주민 추천">주민 추천</option>
+          <option value="기타">기타</option>
+        </select>
+      </div>
+    </div>
+    <div>
+      <label>동거형태(가구 유형)</label>
+      <div class="flex flex-wrap gap-x-4 gap-y-2" id="e-household-types">
+        {% for opt in ["독거노인", "노인부부", "조손가정", "한부모가정", "다문화가정", "장애인가구", "일반가구"] %}
+        <label class="flex items-center gap-1.5 text-sm"><input type="checkbox" value="{{ opt }}"> {{ opt }}</label>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="pt-5 border-t-2 border-primary/60">
+    <div class="text-sm font-semibold text-primary-dark uppercase tracking-wide mb-3">장애 / 질병 / 경력</div>
+    <div class="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-4 mb-4">
+      <div>
+        <label>장애 유무</label>
+        <div class="flex gap-4 items-center h-[42px]">
+          <label class="flex items-center gap-1.5 text-sm"><input type="radio" name="e-disability" value="아니오"> 아니오</label>
+          <label class="flex items-center gap-1.5 text-sm"><input type="radio" name="e-disability" value="예"> 예</label>
+        </div>
+      </div>
+      <div><label>장애 유형/정도</label><input type="text" id="e-disability-type" disabled></div>
+    </div>
+    <div class="mb-2">
+      <label>질병 유무</label>
+      <div class="flex gap-4 items-center h-[42px]">
+        <label class="flex items-center gap-1.5 text-sm"><input type="radio" name="e-illness" value="없다"> 없다</label>
+        <label class="flex items-center gap-1.5 text-sm"><input type="radio" name="e-illness" value="있다"> 있다</label>
+      </div>
+    </div>
+    <div class="mb-4">
+      <label>질병 종류</label>
+      <div class="flex flex-wrap gap-x-4 gap-y-2" id="e-illness-types">
+        {% for opt in ["고혈압", "당뇨", "관절염", "치매", "심장질환", "뇌졸중"] %}
+        <label class="flex items-center gap-1.5 text-sm"><input type="checkbox" value="{{ opt }}" disabled> {{ opt }}</label>
+        {% endfor %}
+      </div>
+      <input type="text" id="e-illness-etc" placeholder="기타 질병" disabled class="mt-2 max-w-xs">
+    </div>
+    <div class="mb-2">
+      <label>경력(전 직업) 유무</label>
+      <div class="flex gap-4 items-center h-[42px]">
+        <label class="flex items-center gap-1.5 text-sm"><input type="radio" name="e-career" value="없다"> 없다</label>
+        <label class="flex items-center gap-1.5 text-sm"><input type="radio" name="e-career" value="있다"> 있다</label>
+      </div>
+    </div>
+    <div>
+      <label>전 직업 종류</label>
+      <div class="flex flex-wrap gap-x-4 gap-y-2" id="e-career-types">
+        {% for opt in ["가사", "공직", "사무직", "자영업", "교직", "전문직", "기술직", "단순노동직"] %}
+        <label class="flex items-center gap-1.5 text-sm"><input type="checkbox" value="{{ opt }}" disabled> {{ opt }}</label>
+        {% endfor %}
+      </div>
+      <input type="text" id="e-career-etc" placeholder="기타 직업" disabled class="mt-2 max-w-xs">
+    </div>
+  </div>
+
+  <div><label>비고</label><textarea id="e-note"></textarea></div>
+
+  <div class="pt-5 border-t-2 border-primary/60">
+    <div class="text-sm font-semibold text-primary-dark uppercase tracking-wide mb-2">개인정보 동의 현황</div>
+    <p class="text-xs text-muted mb-3">동의는 최초 등록 시 받은 내용이며, 이 화면에서는 확인만 가능합니다.</p>
+    <div id="e-consent-info" class="flex flex-wrap gap-2 items-center"></div>
+  </div>
+
+  <div class="pt-5 border-t-2 border-primary/60">
+    <div class="text-sm font-semibold text-primary-dark uppercase tracking-wide mb-2">서류</div>
+    <button type="button" class="btn btn-outline btn-sm" id="e-doc-btn"><i data-lucide="file-text" class="w-4 h-4"></i>등록 서류(.docx) 만들기</button>
+    <div id="e-doc-result" class="mt-2"></div>
+  </div>
+
+  <div class="pt-5 border-t-2 border-primary/60">
+    <div class="text-sm font-semibold text-primary-dark uppercase tracking-wide mb-2">서명</div>
+    <img id="e-signature-current" class="thumb mb-2 hidden">
+    <p class="text-sm text-muted mb-2">새로 그리면 기존 서명을 대체합니다.</p>
+    <div class="signature-pad" data-target="#e-signature">
+      <canvas class="signature-pad-canvas" width="420" height="150"></canvas>
+      <button type="button" class="btn btn-outline btn-sm mt-2 signature-pad-clear">서명 지우기</button>
+    </div>
+    <input type="hidden" id="e-signature">
+  </div>
+
+  <div id="edit-error"></div>
+  <button type="submit" class="btn btn-block text-base py-3"><i data-lucide="check" class="w-5 h-5"></i>수정하기</button>
+</form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>const CLIENT_ID = {{ client_id }};</script>
+<script src="/static/js/members-edit.js"></script>
+{% endblock %}

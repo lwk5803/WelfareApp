@@ -22,7 +22,7 @@ _HEADER_SHADE = "F2CFE3"  # 종이 서식의 분홍색 헤더 칸과 비슷한 �
 _TITLE_COLOR = RGBColor(0xE0, 0x5A, 0x00)
 
 
-# 개인정보 동의서 내용입니다. docx 문서(2페이지)와 등록 화면(app_frontend.py)이
+# 개인정보 동의서 내용입니다. docx 문서(2페이지)와 등록 화면(templates/members_new.html)이
 # 똑같은 문구를 써야 하므로, 여기 한 곳에만 적어두고 양쪽에서 가져다 씁니다
 # (내용을 고칠 때 한 곳만 고치면 되도록).
 def personal_info_rows() -> list[tuple[str, str]]:

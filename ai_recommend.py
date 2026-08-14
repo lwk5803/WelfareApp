@@ -6,22 +6,22 @@ ai_recommend.py
 이어서 답하고 필요하면 스스로 추가 검색까지 하는 챗봇 구조입니다.
 
 두 가지 방식으로 쓸 수 있습니다:
-    1) OpenAI (기본값) - .streamlit/secrets.toml에 OPENAI_API_KEY 추가
+    1) OpenAI (기본값) - .env 파일에 OPENAI_API_KEY 추가
     2) 로컬 모델 (Ollama) - 비용 없이 로컬 테스트용
-       secrets.toml에 AI_PROVIDER = "local" 추가
+       .env에 AI_PROVIDER=local 추가
        (선택) LOCAL_MODEL_NAME, LOCAL_BASE_URL로 모델/주소 변경 가능
 
 로컬로 테스트하려면:
     ollama pull qwen3:8b
     ollama serve
-그 다음 secrets.toml에 AI_PROVIDER = "local" 한 줄만 추가하면 됩니다.
+그 다음 .env에 AI_PROVIDER=local 한 줄만 추가하면 됩니다.
 """
 
 import json
 
 from openai import OpenAI
-import streamlit as st
 
+import config
 import welfare_search
 
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
@@ -63,12 +63,9 @@ class AIRecommendError(Exception):
 def _get_provider() -> str:
     """
     "openai" 또는 "local" 중 어떤 걸 쓸지 결정합니다.
-    secrets.toml에 AI_PROVIDER를 안 적어두면 기본값은 "openai"입니다.
+    .env에 AI_PROVIDER를 안 적어두면 기본값은 "openai"입니다.
     """
-    try:
-        provider = st.secrets.get("AI_PROVIDER")
-    except FileNotFoundError:
-        provider = None
+    provider = config.get_secret("AI_PROVIDER")
     return (provider or "openai").strip().lower()
 
 
@@ -82,14 +79,8 @@ def get_client() -> tuple[OpenAI, str]:
     provider = _get_provider()
 
     if provider == "local":
-        try:
-            model_name = st.secrets.get("LOCAL_MODEL_NAME")
-        except FileNotFoundError:
-            model_name = None
-        try:
-            base_url = st.secrets.get("LOCAL_BASE_URL")
-        except FileNotFoundError:
-            base_url = None
+        model_name = config.get_secret("LOCAL_MODEL_NAME")
+        base_url = config.get_secret("LOCAL_BASE_URL")
 
         # Ollama는 api_key 값을 실제로 검사하지 않지만, OpenAI 클라이언트 라이브러리는
         # 빈 값을 안 받아줘서 의미 없는 문자열("ollama")을 그냥 채워 넣습니다.
@@ -97,16 +88,12 @@ def get_client() -> tuple[OpenAI, str]:
         return client, (model_name or DEFAULT_LOCAL_MODEL)
 
     # provider == "openai" (기본값)
-    try:
-        api_key = st.secrets.get("OPENAI_API_KEY")
-    except FileNotFoundError:
-        api_key = None
-
+    api_key = config.get_secret("OPENAI_API_KEY")
     if not api_key:
         raise AIRecommendError(
-            "OpenAI API 키가 설정되지 않았습니다. .streamlit/secrets.toml에 "
+            "OpenAI API 키가 설정되지 않았습니다. .env 파일에 "
             "OPENAI_API_KEY를 추가해주세요. (로컬 모델로 테스트하려면 대신 "
-            "AI_PROVIDER = \"local\"을 추가하세요.)"
+            "AI_PROVIDER=local을 추가하세요.)"
         )
     return OpenAI(api_key=api_key), DEFAULT_OPENAI_MODEL
 

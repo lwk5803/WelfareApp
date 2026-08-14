@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}회원 삭제 - 복지관 회원 관리{% endblock %}
+{% block page_header %}회원 삭제{% endblock %}
+{% block content %}
+<h1 class="text-xl font-bold text-ink mb-1 flex items-center gap-2"><i data-lucide="trash-2" class="w-5 h-5 text-danger"></i>회원 삭제</h1>
+<p class="text-sm text-muted mb-3">관리자만 이용할 수 있습니다. 삭제할 회원의 이름을 입력해 선택하세요.</p>
+
+<div class="card">
+  <div class="relative search-box">
+    <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted"></i>
+    <input type="text" id="member-search-input" placeholder="이름으로 검색" class="pl-9">
+  </div>
+  <div id="member-search-results" class="member-search-results"></div>
+  <div id="detail-area" class="mt-4"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const FIELD_LABELS = {
+  member_no: "회원번호", gender: "성별", birth_date: "생년월일",
+  address: "주소", phone: "전화번호", welfare_type: "회원 구분", note: "비고",
+  household_types: "가구 유형", has_disability: "장애 여부", disability_type: "장애 유형",
+  emergency_contact_name: "비상연락처 성명", emergency_contact_relation: "비상연락처 관계",
+  emergency_contact_phone: "비상연락처 번호", join_route: "가입경로",
+  has_illness: "질병 유무", illness_type: "질병 종류", has_career: "경력 유무",
+  career_type: "경력 종류", counselor: "상담자", created_at: "등록일시",
+  consent_personal: "개인정보 동의", consent_sensitive: "민감정보 동의",
+  consent_third_party: "제3자제공 동의", consent_portrait: "초상권 동의",
+  consent_signed_at: "동의 확인일시",
+};
+const HIDDEN_FIELDS = ["id", "name", "deleted_at", "photo_data", "signature_data"];
+
+async function showDetail(id) {
+  const area = document.getElementById("detail-area");
+  area.innerHTML = `<p class="text-sm text-muted">불러오는 중...</p>`;
+  try {
+    const c = await apiJson(`/api/clients/${id}`);
+    const avatarHtml = c.photo_data
+      ? `<div class="avatar" style="width:64px;height:64px;font-size:1.4rem;"><img src="data:image/jpeg;base64,${c.photo_data}"></div>`
+      : `<div class="avatar" style="width:64px;height:64px;font-size:1.4rem;">${(c.name || "?").slice(0, 1)}</div>`;
+
+    const rows = Object.keys(c).filter((k) => !HIDDEN_FIELDS.includes(k) && c[k])
+      .map((k) => `<div class="detail-row"><span class="k">${FIELD_LABELS[k] || k}</span><span class="v">${c[k]}</span></div>`)
+      .join("");
+
+    area.innerHTML = `
+      <div class="entity-card max-w-md" style="cursor:default;">
+        <div class="flex items-center gap-3">
+          ${avatarHtml}
+          <div>
+            <div class="entity-card-title text-lg">${c.name}</div>
+            <div class="entity-card-sub">${c.member_no || ""}</div>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 mt-1">${rows}</div>
+      </div>
+      <div class="alert alert-warning mt-4"><i data-lucide="alert-triangle" class="w-4 h-4 mt-0.5"></i><span>삭제하면 되돌릴 수 없습니다.</span></div>
+      <button type="button" class="btn btn-danger mt-3" id="delete-btn"><i data-lucide="trash-2" class="w-4 h-4"></i>회원 삭제하기</button>
+    `;
+    lucide.createIcons();
+    document.getElementById("delete-btn").addEventListener("click", async () => {
+      try {
+        await apiJson(`/api/clients/${id}`, { method: "DELETE" });
+        area.innerHTML = `<div class="alert alert-success"><i data-lucide="check-circle" class="w-4 h-4 mt-0.5"></i><span>삭제되었습니다.</span></div>`;
+        lucide.createIcons();
+        document.getElementById("member-search-input").value = "";
+      } catch (e) {
+        area.insertAdjacentHTML("beforeend", `<div class="alert alert-danger mt-2"><i data-lucide="alert-circle" class="w-4 h-4 mt-0.5"></i><span>${e.message}</span></div>`);
+        lucide.createIcons();
+      }
+    });
+  } catch (e) {
+    area.innerHTML = `<div class="alert alert-danger"><i data-lucide="alert-circle" class="w-4 h-4 mt-0.5"></i><span>${e.message}</span></div>`;
+    lucide.createIcons();
+  }
+}
+
+initMemberSearch({
+  inputId: "member-search-input",
+  resultsId: "member-search-results",
+  onSelect: (c) => showDetail(c.id),
+});
+</script>
+{% endblock %}

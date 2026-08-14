@@ -5,8 +5,8 @@ stats.py
 supabase_db.py(저장), parsers.py(입력 정리)와 마찬가지로,
 "통계 계산" 역할만 따로 떼어내서 이 파일에 모아뒀습니다.
 
-app_frontend.py는 이 파일의 함수들이 돌려주는 결과(pandas Series)를
-st.bar_chart 등으로 화면에 그리기만 하면 됩니다.
+main.py의 /api/stats/* 엔드포인트가 이 파일의 함수들이 돌려주는 결과(pandas Series)를
+JSON으로 바꿔 돌려주면, 화면(static/js/stats.js)이 Chart.js로 그립니다.
 """
 
 import pandas as pd
@@ -87,6 +87,34 @@ def build_disability_distribution(df: pd.DataFrame) -> pd.Series:
         return pd.Series(dtype=int)
     values = df["has_disability"].replace("", "미입력").fillna("미입력")
     return values.value_counts()
+
+
+def build_illness_distribution(df: pd.DataFrame) -> pd.Series:
+    """질병 유무별 인원수를 계산합니다."""
+    if "has_illness" not in df.columns or df.empty:
+        return pd.Series(dtype=int)
+    values = df["has_illness"].replace("", "미입력").fillna("미입력")
+    return values.value_counts()
+
+
+def build_career_distribution(df: pd.DataFrame) -> pd.Series:
+    """경력(전 직업) 유무별 인원수를 계산합니다."""
+    if "has_career" not in df.columns or df.empty:
+        return pd.Series(dtype=int)
+    values = df["has_career"].replace("", "미입력").fillna("미입력")
+    return values.value_counts()
+
+
+def build_join_route_distribution(df: pd.DataFrame) -> pd.Series:
+    """
+    가입경로별 인원수를 계산합니다. "관공서 의뢰(사유)"처럼 괄호 안에 상세 사유가
+    붙어있을 수 있어서, 괄호 앞부분(기본 경로)만 잘라내서 집계합니다.
+    """
+    if "join_route" not in df.columns or df.empty:
+        return pd.Series(dtype=int)
+    base_routes = df["join_route"].fillna("").str.split("(").str[0]
+    base_routes = base_routes.replace("", "미입력")
+    return base_routes.value_counts()
 
 
 def build_summary(df: pd.DataFrame) -> dict:

@@ -1,0 +1,285 @@
+/*
+ * custom.css
+ * ----------
+ * 새 디자인 시스템(오렌지+그린, Pretendard, Tailwind CDN)의 "이름 있는 컴포넌트"만
+ * 모아둔 파일입니다. 여백/그리드/반응형 배치는 각 템플릿에서 Tailwind 유틸리티
+ * 클래스로 직접 작성하고, 여기서는 JS가 클래스 이름으로 다시 찾아야 하는 요소
+ * (버튼, 카드, 뱃지, 회원 카드, 채팅 말풍선, 서명 캔버스, 입력창)만 정의합니다.
+ * 그래서 예전 style.css보다 훨씬 짧습니다 - 배치는 Tailwind가, "생김새"는 여기가 맡습니다.
+ */
+
+:root {
+  --primary: #F97316;
+  --primary-dark: #C2410C;
+  --primary-light: #FFEDD5;
+  --secondary: #22C55E;
+  --secondary-dark: #15803D;
+  --secondary-light: #DCFCE7;
+  --bg: #FFFBF5;
+  --card-bg: #FFFFFF;
+  --text: #3A3A3A;
+  --text-muted: #6B6357;
+  --border: #EAE3D6;
+  --input-border: #C7B48F;
+  --danger: #EF4444;
+  --danger-light: #FEE2E2;
+  --warning: #B45309;
+  --warning-light: #FEF3C7;
+  --radius: 16px;
+  --radius-sm: 10px;
+  --shadow: 0 1px 3px rgba(58, 58, 58, 0.06), 0 1px 2px rgba(58, 58, 58, 0.04);
+}
+
+/* 기본 글자 크기를 16px→18px로 올립니다. rem 단위(Tailwind 유틸리티 대부분,
+   그리고 이 파일의 font-size들)는 이 값을 기준으로 계산되므로, 화면 전체
+   글자 크기가 한 번에 비례해서 커집니다 - 화면마다 일일이 클래스를 바꾸지 않아도 됩니다. */
+html {
+  font-size: 18px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  line-height: 1.6;
+}
+
+[x-cloak] { display: none !important; }
+
+/* ---------- 버튼 ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.95rem;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+.btn:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-secondary { background: var(--secondary); border-color: var(--secondary); }
+.btn-secondary:hover { background: var(--secondary-dark); border-color: var(--secondary-dark); }
+.btn-outline { background: #fff; color: var(--primary); border-color: var(--primary); }
+.btn-outline:hover { background: var(--primary-light); }
+.btn-ghost { background: transparent; border-color: var(--border); color: var(--text-muted); }
+.btn-ghost:hover { background: var(--primary-light); color: var(--primary-dark); }
+.btn-danger { background: var(--danger); border-color: var(--danger); }
+.btn-danger:hover { background: #C0342C; border-color: #C0342C; }
+.btn-sm { padding: 6px 14px; font-size: 0.84rem; }
+.btn-block { width: 100%; }
+.btn i, .btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+/* ---------- 카드 ---------- */
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+/* ---------- 이름 검색 + 목록에서 바로 선택 위젯 (member-search.js) ---------- */
+/* 화면마다 검색창 크기가 제각각이었던 문제를 막기 위해, 폭을 여기 한 곳에서 통일합니다. */
+.search-box { max-width: 420px; }
+/* 검색 안 해도 전체 회원을 목록(카드)으로 바로 보고 고를 수 있게, 항상 grid로 표시합니다.
+   회원이 많아지는 경우를 가정해 세로 스크롤 영역으로 높이를 제한해뒀습니다. 카드 자체의
+   생김새(테두리/배경/여백)는 .entity-card가 이미 정의하므로, 여기서는 <button>이라서
+   필요한 최소한(커서/글꼴/정렬/버튼 기본 테두리 제거)만 얹습니다. */
+.member-search-results {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  max-height: 460px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.member-search-result {
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+}
+.member-search-result:hover { background: var(--primary-light); border-color: var(--primary); }
+
+/* ---------- 뱃지 ---------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  background: #F3F0E9;
+  color: var(--text-muted);
+}
+.badge-primary { background: var(--primary-light); color: var(--primary-dark); }
+.badge-secondary { background: var(--secondary-light); color: var(--secondary-dark); }
+.badge-danger { background: var(--danger-light); color: var(--danger); }
+.badge-warning { background: var(--warning-light); color: var(--warning); }
+
+/* ---------- 회원 카드형 목록 ---------- */
+.entity-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--text);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+a.entity-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(249, 115, 22, 0.14); border-color: var(--primary); }
+
+.avatar {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+  overflow: hidden;
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.entity-card-title { font-weight: 700; color: var(--text); font-size: 1.02rem; }
+.entity-card-sub { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; }
+.entity-card-body { font-size: 0.86rem; color: var(--text-muted); font-weight: 600; display: flex; flex-direction: column; gap: 3px; }
+
+/* ---------- 상세 정보 (label/value) ---------- */
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 0.9rem;
+}
+.detail-row .k { color: var(--text-muted); font-weight: 600; }
+.detail-row .v { font-weight: 600; text-align: right; }
+
+/* ---------- 통계 차트: 전부 같은 높이로 통일 ---------- */
+.chart-box { position: relative; height: 220px; }
+.chart-box.chart-box-lg { height: 260px; }
+
+.period-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+/* ---------- 기간 통계 카드 ---------- */
+.period-card {
+  flex: 0 0 auto;
+  min-width: 170px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+}
+.period-card .period-label { font-weight: 700; color: var(--primary-dark); margin-bottom: 6px; }
+.period-card .period-count { font-size: 1.3rem; font-weight: 700; }
+.period-card .period-detail { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; margin-top: 4px; }
+
+/* ---------- 알림/경고 ---------- */
+.alert {
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.alert-info { background: var(--primary-light); color: var(--primary-dark); }
+.alert-warning { background: var(--warning-light); color: var(--warning); }
+.alert-danger { background: var(--danger-light); color: var(--danger); }
+.alert-success { background: var(--secondary-light); color: var(--secondary-dark); }
+
+/* ---------- 폼 요소 ---------- */
+/* 두 규칙으로 나눴습니다:
+   1) 크기 관련(width/padding)은 :where(...)로 감싸 우선순위를 0으로 만듭니다.
+      그래야 템플릿에 쓴 Tailwind 유틸리티 클래스(예: pl-9)가 항상 이 기본값을 이길 수 있습니다
+      (예전에 이 부분이 일반 선택자였을 때, 검색창 아이콘용 pl-9가 계속 무시되는 버그가 있었습니다).
+   2) 테두리/배경/글자색은 반대로 **낮추지 않은** 일반 선택자로 둡니다. 이것까지 :where()로 감싸면
+      우선순위가 0이 되어, Tailwind CDN이 나중에 주입하는 리셋 스타일(테두리를 0으로 만드는 것)에
+      순서 싸움에서 질 수 있어 테두리가 안 보이는 버그가 있었습니다 - 실제로 겪은 문제라 나눠뒀습니다. */
+:where(input[type="text"], input[type="password"], input[type="email"], input[type="file"],
+select, textarea) {
+  width: 100%;
+  padding: 9px 12px;
+}
+input[type="text"], input[type="password"], input[type="email"], input[type="file"],
+select, textarea {
+  border: 1.5px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+input:disabled, select:disabled, textarea:disabled { background: #F5F1E8; color: var(--text-muted); }
+textarea { resize: vertical; min-height: 70px; }
+label, .field-label { display: block; font-size: 0.86rem; font-weight: 600; color: var(--text-muted); margin-bottom: 5px; }
+
+/* Tailwind의 text-muted 유틸리티(회색 보조 텍스트)는 색만 정의하고 굵기는 안 정해서,
+   흐리게 보이던 문제가 있었습니다. 여기서 전부 일괄로 굵게 만듭니다. */
+.text-muted { font-weight: 600; }
+
+table { width: 100%; border-collapse: collapse; background: var(--card-bg); font-size: 0.9rem; }
+th, td { padding: 9px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+th { color: var(--primary-dark); background: var(--primary-light); }
+
+/* ---------- 서명 캔버스 ---------- */
+.signature-pad-canvas {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  touch-action: none;
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+  display: block;
+}
+
+.thumb { max-width: 140px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+
+/* ---------- AI 추천 채팅 ---------- */
+.chat-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 12px;
+  background: #FBF5EA;
+  border-radius: var(--radius-sm);
+}
+.chat-msg {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  max-width: 80%;
+  font-size: 0.92rem;
+  white-space: pre-wrap;
+}
+.chat-msg.user { align-self: flex-end; background: var(--primary); color: #fff; }
+.chat-msg.assistant { align-self: flex-start; background: #fff; border: 1px solid var(--border); }
