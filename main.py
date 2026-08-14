@@ -223,6 +223,22 @@ def get_stats_period(period: str, user: dict = Depends(auth.require_user)):
     except db.DatabaseError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/stats/charts")
+def get_stats_charts(user: dict = Depends(auth.require_user)):
+    """통계 화면의 그래프들에 쓰일 데이터를 한 번에 모아서 돌려줍니다."""
+    try:
+        df = db.get_all_clients()
+        return {
+            "age_distribution": stats.build_age_distribution(df).to_dict(),
+            "gender_distribution": stats.build_gender_distribution(df).to_dict(),
+            "welfare_type_distribution": stats.build_welfare_type_distribution(df).to_dict(),
+            "household_type_distribution": stats.build_household_type_distribution(df).to_dict(),
+            "disability_distribution": stats.build_disability_distribution(df).to_dict(),
+            "monthly_trend": stats.build_period_trend(df, "월").to_dict(),
+        }
+    except db.DatabaseError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # --- 4. AI 복지 추천 및 공공복지 데이터 API ---
 class WelfareRecommendRequest(BaseModel):

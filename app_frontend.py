@@ -126,11 +126,19 @@ COLUMN_LABELS = {
     "address": "주소",
     "phone": "전화번호",
     "welfare_type": "회원 구분",
-    "manager": "담당자",
     "note": "비고",
     "household_types": "가구 유형",
     "has_disability": "장애 여부",
     "disability_type": "장애 유형",
+    "emergency_contact_name": "비상연락처 성명",
+    "emergency_contact_relation": "비상연락처 관계",
+    "emergency_contact_phone": "비상연락처 번호",
+    "join_route": "가입경로",
+    "has_illness": "질병 유무",
+    "illness_type": "질병 종류",
+    "has_career": "경력 유무",
+    "career_type": "경력 종류",
+    "counselor": "상담자",
     "created_at": "등록일시",
     "consent_personal": "개인정보 동의",
     "consent_sensitive": "민감정보 동의",
@@ -138,6 +146,11 @@ COLUMN_LABELS = {
     "consent_portrait": "초상권 동의",
     "consent_signed_at": "동의 확인일시",
 }
+
+# DB에서 내부 관리용으로만 쓰이고 직원이 화면에서 볼 필요는 없는 컬럼입니다.
+# (deleted_at은 활성 회원만 조회하는 화면들에선 항상 비어있어 보여줄 의미가 없고,
+# photo_data/signature_data는 서버가 목록 조회 시 아예 안 보내므로 신경 쓸 필요 없음)
+HIDDEN_COLUMNS = ["deleted_at"]
 
 HOUSEHOLD_TYPE_OPTIONS = ["독거노인", "노인부부", "조손가정", "한부모가정", "다문화가정", "장애인가구", "일반가구"]
 JOIN_ROUTE_OPTIONS = ["자진", "관공서 의뢰", "주민 추천", "기타"]
@@ -177,7 +190,7 @@ if menu == "회원 목록":
                 # "연번"은 DB에 저장된 값이 아니라, 지금 화면에 보이는 순서대로 매번
                 # 새로 매기는 번호입니다. 그래서 회원이 삭제돼도 항상 1번부터 빈틈없이
                 # 보입니다. 서류 등에 쓰는 영구 식별자는 "회원번호" 컬럼을 쓰세요.
-                display_df = df.drop(columns=["id"]).rename(columns=COLUMN_LABELS)
+                display_df = df.drop(columns=["id"] + [c for c in HIDDEN_COLUMNS if c in df.columns]).rename(columns=COLUMN_LABELS)
                 display_df.insert(0, "연번", range(1, len(display_df) + 1))
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
     except requests.exceptions.ConnectionError:
@@ -683,8 +696,14 @@ elif menu == "회원 삭제":
                 client_res = requests.get(f"{API_BASE}/clients/{selected_id}", headers=AUTH_HEADERS)
                 client = handle_response(client_res)
                 if client:
+                    if client.get("photo_data"):
+                        st.image(base64.b64decode(client["photo_data"]), caption="사진", width=120)
+                    # photo_data/signature_data는 화면에 표(table)로 보여주기엔 너무 긴
+                    # base64 문자열이라 여기서는 빼고, 사진은 위에서 이미지로 따로 보여줍니다.
+                    _drop = ["id", "photo_data", "signature_data"] + [c for c in HIDDEN_COLUMNS if c in client]
+                    display_client = {k: v for k, v in client.items() if k not in _drop}
                     st.dataframe(
-                        pd.DataFrame([client]).rename(columns=COLUMN_LABELS),
+                        pd.DataFrame([display_client]).rename(columns=COLUMN_LABELS),
                         use_container_width=True, hide_index=True,
                     )
                     st.warning("삭제하면 되돌릴 수 없습니다.")
@@ -745,15 +764,46 @@ elif menu == "회원 통계":
     try:
         summary = handle_response(requests.get(f"{API_BASE}/stats/summary", headers=AUTH_HEADERS))
         if summary:
-            st.markdown(
-                f"**전체 회원수 : {summary['total']}명** | "
-                f"오늘 신규가입 : {summary['today']}명 | "
-                f"이번 달 신규가입 : {summary['this_month']}명"
-            )
+            m1, m2, m3, m4, m5 = st.columns(5)
+            m1.metric("전체 회원수", f"{summary['total']}명")
+            m2.metric("오늘 신규가입", f"{summary['today']}명")
+            m3.metric("이번 달 신규가입", f"{summary['this_month']}명")
+            m4.metric("남 / 여", f"{summary['male']} / {summary['female']}")
+            m5.metric("수급자", f"{summary['recipient']}명")
+
+            st.divider()
+            charts = handle_response(requests.get(f"{API_BASE}/stats/charts", headers=AUTH_HEADERS))
+            if charts:
+                st.markdown("#### 월별 신규가입 추이")
+                trend = pd.Series(charts["monthly_trend"])
+                if not trend.empty:
+                    st.line_chart(trend.sort_index())
+                else:
+                    st.caption("데이터가 없습니다.")
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("#### 성별 분포")
+                    st.bar_chart(pd.Series(charts["gender_distribution"]))
+                    st.markdown("#### 연령대 분포")
+                    st.bar_chart(pd.Series(charts["age_distribution"]))
+                    st.markdown("#### 장애 유무")
+                    st.bar_chart(pd.Series(charts["disability_distribution"]))
+                with c2:
+                    st.markdown("#### 회원 구분")
+                    st.bar_chart(pd.Series(charts["welfare_type_distribution"]))
+                    st.markdown("#### 가구 유형 분포")
+                    st.caption("한 회원이 여러 유형에 해당할 수 있어 합계가 전체 회원수보다 클 수 있습니다.")
+                    household = pd.Series(charts["household_type_distribution"])
+                    if not household.empty:
+                        st.bar_chart(household)
+                    else:
+                        st.caption("데이터가 없습니다.")
+
             st.divider()
             period_data = handle_response(requests.get(f"{API_BASE}/stats/period/월", headers=AUTH_HEADERS))
             if period_data:
-                st.markdown("#### 월별 가입 현황")
+                st.markdown("#### 월별 가입 현황 (표)")
                 st.dataframe(pd.DataFrame(period_data), use_container_width=True, hide_index=True)
     except Exception as e:
         st.error(f"통계 불러오기 실패: {e}")

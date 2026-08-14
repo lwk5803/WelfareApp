@@ -14,8 +14,9 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
-# 기관명입니다. 다른 기관에서 이 앱을 쓰게 되면 여기 한 줄만 바꾸면 됩니다.
-ORG_NAME = "구립응암노인복지관"
+# 실제 기관명이 서류에 노출되지 않아야 하는 테스트 단계라 임시로 이렇게 둡니다.
+# 실제 운영 시작하면 여기 한 줄만 기관명으로 바꾸면 문서 전체에 반영됩니다.
+ORG_NAME = "테스트용 문서입니다"
 
 _HEADER_SHADE = "F2CFE3"  # 종이 서식의 분홍색 헤더 칸과 비슷한 색
 _TITLE_COLOR = RGBColor(0xE0, 0x5A, 0x00)
@@ -26,7 +27,7 @@ _TITLE_COLOR = RGBColor(0xE0, 0x5A, 0x00)
 # (내용을 고칠 때 한 곳만 고치면 되도록).
 def personal_info_rows() -> list[tuple[str, str]]:
     return [
-        ("수집·이용 목적", f"{ORG_NAME} 회원가입(사회복지시설정보시스템)과 프로그램 참여 및 서비스 제공·관리"),
+        ("수집·이용 목적", "회원가입(사회복지시설정보시스템)과 프로그램 참여 및 서비스 제공·관리"),
         ("수집하는 기본 개인정보 항목", "성명, 성별, 생년월일, 주소, 연락처 등"),
         ("수집하는 민감정보 항목", "건강정보(질병·장애 유무), 소득 및 재산정보, 보호구분 등"),
         ("보유·이용 기간", "이용신청서 제출 시부터 회원 자격 상실 시까지"),
@@ -46,7 +47,7 @@ def third_party_rows() -> list[tuple[str, str]]:
 
 def portrait_rows() -> list[tuple[str, str]]:
     return [
-        ("사용·이용 목적", f"{ORG_NAME} 온·오프라인 사업소개 및 홍보, 기록자료 활용"),
+        ("사용·이용 목적", "온·오프라인 사업소개 및 홍보, 기록자료 활용"),
         ("사용·이용 항목", "서비스 이용사진 및 운영사진 등 초상사진저작물"),
         ("동의거부 권리 및 제한사항", "귀하는 동의를 거부할 권리가 있으며, 거부하셔도 서비스 이용에는 제한이 없습니다."),
     ]
@@ -207,7 +208,7 @@ def _add_consent_table(doc: Document, rows: list[tuple[str, str]], consent_row_l
 def _build_page2(doc: Document, client: dict):
     _add_title(doc, "개인정보 등 수집 및 이용 동의서")
     p = doc.add_paragraph(
-        f"{ORG_NAME} 이용 서비스 신청과 관련하여 개인정보보호법 제15조 및 제22조에 따라 귀하의 "
+        "본 서비스 이용 신청과 관련하여 개인정보보호법 제15조 및 제22조에 따라 귀하의 "
         "개인정보 및 민감정보를 수집·이용하고자 하오니 아래 사항을 숙지하신 후 동의여부를 확인하여 주시기 바랍니다."
     )
     for run in p.runs:

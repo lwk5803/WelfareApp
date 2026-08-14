@@ -68,6 +68,27 @@ def build_age_distribution(df: pd.DataFrame) -> pd.Series:
     return pd.Series(labels).value_counts().sort_index()
 
 
+def build_household_type_distribution(df: pd.DataFrame) -> pd.Series:
+    """
+    가구 유형별 인원수를 계산합니다. 한 회원이 여러 유형에 해당할 수 있어(예:
+    "독거노인,장애인가구") 콤마로 나눠서 각각 세므로, 합계가 전체 회원 수보다
+    클 수 있습니다(중복 집계 - 관리 목적상 자연스러운 일입니다).
+    """
+    if "household_types" not in df.columns or df.empty:
+        return pd.Series(dtype=int)
+    exploded = df["household_types"].fillna("").str.split(",").explode().str.strip()
+    exploded = exploded[exploded != ""]
+    return exploded.value_counts()
+
+
+def build_disability_distribution(df: pd.DataFrame) -> pd.Series:
+    """장애 유무별 인원수를 계산합니다."""
+    if "has_disability" not in df.columns or df.empty:
+        return pd.Series(dtype=int)
+    values = df["has_disability"].replace("", "미입력").fillna("미입력")
+    return values.value_counts()
+
+
 def build_summary(df: pd.DataFrame) -> dict:
     """
     회원 목록 화면 위에 텍스트로 보여줄 간단 요약 통계를 계산합니다.
