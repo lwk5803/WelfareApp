@@ -102,23 +102,35 @@ def find_duplicates(name: str, birth_date: str, phone: str, exclude_id: int | No
     이름+생년월일이 같거나, 전화번호가 같은 회원을 찾습니다. 탈퇴(소프트 삭제) 처리된
     회원도 포함해서 찾습니다 - 예전에 다녔다가 다시 등록하러 온 회원을 알아보거나,
     이미 등록된 회원을 중복 등록하지 않도록 막는 데 씁니다.
+
+    이름/전화번호는 직원이 자유 입력한 값이라, PostgREST의 or() 필터 문법에 필요한
+    특수문자(쉼표·괄호 등)가 그대로 섞여 들어올 수 있습니다. 문자열을 이어붙여 필터를
+    만들면 그 값이 필터 구문 자체를 깨뜨리거나 의도치 않은 조건으로 바뀔 수 있어서
+    (예: 이름에 쉼표가 들어간 경우), 조건마다 별도 쿼리로 나눠 안전하게(파라미터로만)
+    호출한 뒤 파이썬에서 합칩니다.
     """
     try:
-        query = _supabase().table("clients").select("*")
-        conditions = []
-        if birth_date:
-            conditions.append(f"and(name.eq.{name},birth_date.eq.{birth_date})")
+        rows_by_id: dict = {}
+
+        if name and birth_date:
+            query = _supabase().table("clients").select("*").eq("name", name).eq("birth_date", birth_date)
+            if exclude_id is not None:
+                query = query.neq("id", exclude_id)
+            for row in query.execute().data:
+                rows_by_id[row["id"]] = row
+
         if phone:
-            conditions.append(f"phone.eq.{phone}")
-        if not conditions:
-            return pd.DataFrame(columns=CLIENT_COLUMNS)
-        query = query.or_(",".join(conditions))
-        if exclude_id is not None:
-            query = query.neq("id", exclude_id)
-        res = query.execute()
+            query = _supabase().table("clients").select("*").eq("phone", phone)
+            if exclude_id is not None:
+                query = query.neq("id", exclude_id)
+            for row in query.execute().data:
+                rows_by_id[row["id"]] = row
     except APIError as e:
         raise DatabaseError("중복 확인 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.") from e
-    return pd.DataFrame(res.data, columns=CLIENT_COLUMNS if not res.data else None)
+
+    if not rows_by_id:
+        return pd.DataFrame(columns=CLIENT_COLUMNS)
+    return pd.DataFrame(list(rows_by_id.values()), columns=CLIENT_COLUMNS)
 
 
 def add_client(

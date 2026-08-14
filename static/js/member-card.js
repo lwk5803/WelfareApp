@@ -51,24 +51,26 @@ function memberCardInnerHtml(c) {
   const genderAgeStr = genderAgeParts.length ? ` (${genderAgeParts.join(" / ")})` : "";
 
   const badges = [
-    c.welfare_type ? `<span class="${welfareBadgeClass(c.welfare_type)}">${c.welfare_type}</span>` : "",
+    c.welfare_type ? `<span class="${welfareBadgeClass(c.welfare_type)}">${escapeHtml(c.welfare_type)}</span>` : "",
     c.has_disability === "예" ? `<span class="badge badge-secondary">장애</span>` : "",
     needsInfoUpdate(c) ? `<span class="badge badge-warning"><i data-lucide="refresh-cw" class="w-3 h-3"></i>정보 갱신 필요</span>` : "",
   ].join("");
 
+  // 이름/주소/전화번호/회원번호는 직원이 자유 입력한 값이라 반드시 escapeHtml을 거칩니다
+  // (그대로 꽂으면 저장형 XSS로 이어질 수 있습니다 - api.js의 escapeHtml 주석 참고).
   return `
     <div class="flex items-center gap-3">
-      <div class="avatar">${avatarInitial(c.name)}</div>
+      <div class="avatar">${escapeHtml(avatarInitial(c.name))}</div>
       <div class="min-w-0">
-        <div class="entity-card-title truncate">${c.name || "(이름 없음)"}<span class="font-normal text-muted">${genderAgeStr}</span></div>
-        <div class="entity-card-sub">${c.member_no || ""}</div>
+        <div class="entity-card-title truncate">${c.name ? escapeHtml(c.name) : "(이름 없음)"}<span class="font-normal text-muted">${escapeHtml(genderAgeStr)}</span></div>
+        <div class="entity-card-sub">${escapeHtml(c.member_no || "")}</div>
       </div>
     </div>
     <div class="flex gap-1.5 flex-wrap">${badges}</div>
     <div class="entity-card-body">
-      ${c.address ? `<div class="flex items-center gap-1.5"><i data-lucide="map-pin" class="w-3.5 h-3.5"></i>${c.address}</div>` : ""}
-      ${c.phone ? `<div class="flex items-center gap-1.5"><i data-lucide="phone" class="w-3.5 h-3.5"></i>${c.phone}</div>` : ""}
-      ${c.created_at ? `<div class="flex items-center gap-1.5"><i data-lucide="calendar" class="w-3.5 h-3.5"></i>가입일 ${(c.created_at || "").slice(0, 10)}</div>` : ""}
+      ${c.address ? `<div class="flex items-center gap-1.5"><i data-lucide="map-pin" class="w-3.5 h-3.5"></i>${escapeHtml(c.address)}</div>` : ""}
+      ${c.phone ? `<div class="flex items-center gap-1.5"><i data-lucide="phone" class="w-3.5 h-3.5"></i>${escapeHtml(c.phone)}</div>` : ""}
+      ${c.created_at ? `<div class="flex items-center gap-1.5"><i data-lucide="calendar" class="w-3.5 h-3.5"></i>가입일 ${escapeHtml((c.created_at || "").slice(0, 10))}</div>` : ""}
     </div>
   `;
 }

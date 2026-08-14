@@ -267,7 +267,7 @@ document.getElementById("reg-form").addEventListener("submit", async (e) => {
       consent_portrait: consentPortrait ? "동의함" : "동의안함",
     };
     const res = await apiPostJson("/api/clients", payload);
-    errorEl.innerHTML = `<div class="alert alert-success"><i data-lucide="check-circle" class="w-4 h-4 mt-0.5"></i><span>${res.message}</span></div>`;
+    errorEl.innerHTML = `<div class="alert alert-success"><i data-lucide="check-circle" class="w-4 h-4 mt-0.5"></i><span>${escapeHtml(res.message)}</span></div>`;
     lucide.createIcons();
     document.getElementById("reg-form").reset();
     document.getElementById("reg-photo-preview").style.display = "none";

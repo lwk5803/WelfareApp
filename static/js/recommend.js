@@ -24,18 +24,20 @@ if (CLIENT_ID) {
 function renderChat() {
   const area = document.getElementById("recommend-area");
   if (!area) return;
+  // m.content는 직원이 채팅창에 직접 타이핑한 내용도 포함되어 있어서(사용자 메시지),
+  // 이스케이프 없이 그대로 꽂으면 XSS로 이어질 수 있습니다.
   const chatHtml = messages
     .filter((m, i) => i !== 1 && !["system", "tool"].includes(m.role) && m.content)
-    .map((m) => `<div class="chat-msg ${m.role === "user" ? "user" : "assistant"}">${m.content}</div>`)
+    .map((m) => `<div class="chat-msg ${m.role === "user" ? "user" : "assistant"}">${escapeHtml(m.content)}</div>`)
     .join("");
 
   const govHtml = govServices.length ? `
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
       ${govServices.map((s) => `
         <div class="entity-card" style="cursor:default;">
-          <div class="entity-card-title">${s["서비스명"]}</div>
-          <div class="flex gap-1.5"><span class="badge badge-primary">${s["구분"]}</span></div>
-          <div class="entity-card-body">${s["주관기관"]}</div>
+          <div class="entity-card-title">${escapeHtml(s["서비스명"])}</div>
+          <div class="flex gap-1.5"><span class="badge badge-primary">${escapeHtml(s["구분"])}</span></div>
+          <div class="entity-card-body">${escapeHtml(s["주관기관"])}</div>
         </div>`).join("")}
     </div>` : "";
 

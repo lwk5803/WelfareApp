@@ -207,7 +207,7 @@ document.getElementById("edit-form").addEventListener("submit", async (e) => {
     if (signatureDataUrl.includes(",")) payload.signature_data = signatureDataUrl.split(",", 2)[1];
 
     const res = await apiPutJson(`/api/clients/${CLIENT_ID}`, payload);
-    errorEl.innerHTML = `<div class="alert alert-success"><i data-lucide="check-circle" class="w-4 h-4 mt-0.5"></i><span>${res.message}</span></div>`;
+    errorEl.innerHTML = `<div class="alert alert-success"><i data-lucide="check-circle" class="w-4 h-4 mt-0.5"></i><span>${escapeHtml(res.message)}</span></div>`;
     lucide.createIcons();
   } catch (err) {
     errorEl.innerHTML = `<div class="alert alert-danger"><i data-lucide="alert-circle" class="w-4 h-4 mt-0.5"></i><span>${err.message}</span></div>`;
