@@ -3,6 +3,7 @@ openpyxl
 jinja2
 requests
 openai
+langgraph
 python-dotenv
 
 fastapi

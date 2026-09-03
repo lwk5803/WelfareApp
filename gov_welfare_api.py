@@ -201,6 +201,18 @@ def fetch_welfare_detail(serv_id: str) -> dict:
         if name or link:
             apply_methods.append(f"{name}: {link}" if name else link)
 
+    # 문의처(inqplCtadrList) - 지금까지 응답에 있는데도 안 쓰고 있었습니다. rprsCtadr(대표
+    # 문의전화, 예: "129")도 있으면 같이 붙여서 "어디에 물어보면 되는지"를 더 명확히 합니다.
+    contacts = []
+    for item in root.findall("inqplCtadrList"):
+        name = _text(item, "servSeDetailNm")
+        link = _text(item, "servSeDetailLink")
+        if name or link:
+            contacts.append(f"{name} ({link})" if name and link else (name or link))
+    rprs_ctadr = _text(root, "rprsCtadr")
+    if rprs_ctadr and rprs_ctadr not in " ".join(contacts):
+        contacts.append(f"대표 문의전화 {rprs_ctadr}")
+
     return {
         "servId": _text(root, "servId"),
         "servNm": _text(root, "servNm"),
@@ -210,6 +222,7 @@ def fetch_welfare_detail(serv_id: str) -> dict:
         "criteria": _text(root, "slctCritCn"),
         "benefit": _text(root, "alwServCn"),
         "apply_methods": apply_methods,
+        "contact": "; ".join(contacts),
     }
 
 
@@ -233,6 +246,33 @@ LIFE_STAGE_RANGES = [
 
 # 회원이 "남"인데 이 단어들이 서비스명/대상에 있으면 명백히 안 맞는 서비스입니다.
 FEMALE_SPECIFIC_KEYWORDS = ["임신", "출산", "산모", "산후조리", "모유수유", "난임"]
+
+# lifeNmArray(생애주기 태그)만 믿고 나이를 걸렀더니, 정부 API 데이터 자체에 이 태그가
+# 비어있는 서비스가 실제로 있어서(예: "실종아동 등 보호 및 지원"이 태그 없이 노년층에게도
+# 후보로 들어옴 - 외부 테스트에서 100세 회원에게 아동 대상 서비스가 추천된 사례로 발견)
+# 서비스명 자체의 키워드로 한 번 더 걸러줍니다. 태그 유무와 무관하게 항상 적용합니다.
+CHILD_ONLY_KEYWORDS = [
+    "아이돌봄", "보육료", "어린이집", "영유아", "아동수당", "초등돌봄", "다함께돌봄",
+    "실종아동", "입양아동", "학대아동", "드림스타트", "가정양육수당", "첫만남이용권",
+]
+ELDERLY_ONLY_KEYWORDS = [
+    "노인맞춤돌봄", "경로당", "노인일자리", "노인장기요양", "기초연금", "노인돌봄", "치매안심센터",
+]
+
+
+def matches_age_keyword(serv_nm: str, age: int | None) -> bool:
+    """
+    lifeNmArray 태그가 비어있어도(=matches_life_stage가 걸러내지 못해도) 서비스명만으로
+    명백히 안 맞는 나이대인 걸 알 수 있는 경우를 걸러냅니다. 성인에게 아동 전용 서비스를,
+    미취학·아동에게 노인 전용 서비스를 추천하지 않도록 하는 최소한의 안전장치입니다.
+    """
+    if age is None:
+        return True
+    if age > 19 and any(kw in serv_nm for kw in CHILD_ONLY_KEYWORDS):
+        return False
+    if age < 50 and any(kw in serv_nm for kw in ELDERLY_ONLY_KEYWORDS):
+        return False
+    return True
 
 # [회원 프로필]에 없는 특수 신분이 있어야 대상이 되는 서비스들입니다. 완전히
 # 제외하지는 않고(회원이 실제로 해당할 수도 있으니) 목록 뒤로 밀어서, LLM이
@@ -279,11 +319,6 @@ def special_status_reason(serv_nm: str, target_nm_array: str) -> str:
     return ""
 
 
-def is_special_status_target(serv_nm: str, target_nm_array: str) -> bool:
-    """장애인·국가유공자·다문화 등 특수 신분이 있어야 하는 서비스인지 확인합니다."""
-    return bool(special_status_reason(serv_nm, target_nm_array))
-
-
 def split_general_and_special(
     services: list[dict], age: int | None, gender: str, known_statuses: list[str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
@@ -301,6 +336,7 @@ def split_general_and_special(
         s for s in services
         if matches_gender(s["servNm"], s.get("trgterIndvdlArray", ""), gender)
         and matches_life_stage(s.get("lifeArray", ""), age)
+        and matches_age_keyword(s["servNm"], age)
     ]
     general, special = [], []
     for s in filtered:
@@ -394,6 +430,8 @@ def fetch_local_welfare_detail(serv_id: str) -> dict:
         - 대상: tgtrDtlCn(X) -> sprtTrgtCn(O)
         - 신청방법: applmetList 반복 구조(X, 아예 없는 태그) -> aplyMtdCn 텍스트 하나(O)
         - criteria(slctCritCn), benefit(alwServCn)은 중앙부처 API와 필드명이 동일합니다.
+        - 문의처: inqplCtadrList 안의 하위 태그명도 다릅니다
+          (servSeDetailNm/servSeDetailLink(X) -> wlfareInfoReldNm/wlfareInfoReldCn(O)).
     """
     api_key = _get_api_key()
     params = {
@@ -407,6 +445,13 @@ def fetch_local_welfare_detail(serv_id: str) -> dict:
     if aply_mtd_cn:
         apply_methods.append(aply_mtd_cn)
 
+    contacts = []
+    for item in root.findall("inqplCtadrList"):
+        name = _text(item, "wlfareInfoReldNm")
+        detail = _text(item, "wlfareInfoReldCn")
+        if name or detail:
+            contacts.append(f"{name} ({detail})" if name and detail else (name or detail))
+
     return {
         "servId": _text(root, "servId"),
         "servNm": _text(root, "servNm"),
@@ -416,4 +461,5 @@ def fetch_local_welfare_detail(serv_id: str) -> dict:
         "criteria": _text(root, "slctCritCn"),
         "benefit": _text(root, "alwServCn"),
         "apply_methods": apply_methods,
+        "contact": "; ".join(contacts),
     }
