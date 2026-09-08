@@ -90,7 +90,12 @@ class _NeedsLogin(Exception):
 
 @app.exception_handler(_NeedsLogin)
 def _needs_login_handler(request: Request, exc: _NeedsLogin):
-    return RedirectResponse("/login")
+    # access_token/refresh_token이 둘 다 무효해서 여기로 온 것이므로, 쿠키를 지우지
+    # 않고 그냥 /login으로 보내면 "/login이 쿠키 존재만 보고 다시 /members로 돌려보냄
+    # → /members가 다시 여기로 옴"이 반복되는 무한 리다이렉트 루프에 빠집니다.
+    response = RedirectResponse("/login")
+    _clear_auth_cookies(response)
+    return response
 
 
 def get_page_user(request: Request, response: Response) -> dict:
