@@ -20,6 +20,7 @@ import welfare_search
 import ai_recommend
 import gov_welfare_api
 import parsers
+import recommend_graph
 
 app = FastAPI(title="복지관 회원 관리 통합 시스템")
 templates = Jinja2Templates(directory="templates")
@@ -542,9 +543,8 @@ def _compute_initial_recommendations(client_id: int) -> dict:
         else disability_type
     )
 
-    detail_blocks = []
+    candidates = []
     reference_lines = []
-    gov_service_summary = []
     gov_data_warnings = []
 
     def _dedup_by_id(services: list[dict]) -> list[dict]:
@@ -570,12 +570,12 @@ def _compute_initial_recommendations(client_id: int) -> dict:
         )
         for s in nat_general[:5]:
             d = gov_welfare_api.fetch_welfare_detail(s["servId"])
-            link = s.get("servDtlLink", "")
-            detail_blocks.append(
-                f"[중앙부처] {d['servNm']}\n개요: {d['outline']}\n신청방법: {d['apply_methods']}\n"
-                f"주관기관: {d['jurMnofNm']}\n출처링크: {link or '(링크 없음)'}"
-            )
-            gov_service_summary.append({"서비스명": d["servNm"], "구분": "전국민 대상", "주관기관": d["jurMnofNm"]})
+            candidates.append({
+                "servId": d["servId"], "servNm": d["servNm"], "outline": d["outline"],
+                "apply_methods": d["apply_methods"], "jurMnofNm": d["jurMnofNm"],
+                "contact": d.get("contact", ""),
+                "link": s.get("servDtlLink", ""), "scope": "전국",
+            })
         for s in nat_special[:5]:
             reference_lines.append(f"{s['servNm']} - {s['_special_reason']} 자격이 있는 경우에만 해당")
     except gov_welfare_api.GovWelfareError as e:
@@ -599,12 +599,12 @@ def _compute_initial_recommendations(client_id: int) -> dict:
         )
         for s in loc_general[:5]:
             d = gov_welfare_api.fetch_local_welfare_detail(s["servId"])
-            link = s.get("servDtlLink", "")
-            detail_blocks.append(
-                f"[지자체({ctpv_nm} {sgg_nm})] {d['servNm']}\n개요: {d['outline']}\n신청방법: {d['apply_methods']}\n"
-                f"주관기관: {d['jurMnofNm']}\n출처링크: {link or '(링크 없음)'}"
-            )
-            gov_service_summary.append({"서비스명": d["servNm"], "구분": f"지자체({ctpv_nm} {sgg_nm}) 대상", "주관기관": d["jurMnofNm"]})
+            candidates.append({
+                "servId": d["servId"], "servNm": d["servNm"], "outline": d["outline"],
+                "apply_methods": d["apply_methods"], "jurMnofNm": d["jurMnofNm"],
+                "contact": d.get("contact", ""),
+                "link": s.get("servDtlLink", ""), "scope": f"지자체({ctpv_nm} {sgg_nm})",
+            })
         for s in loc_special[:5]:
             reference_lines.append(f"{s['servNm']} - {s['_special_reason']} 자격이 있는 경우에만 해당")
     except gov_welfare_api.GovWelfareError as e:
@@ -622,33 +622,39 @@ def _compute_initial_recommendations(client_id: int) -> dict:
         f"비고: {note or '없음'}"
     )
 
-    system_prompt = ai_recommend.build_system_prompt(profile_summary)
-    gov_context = "\n\n".join(detail_blocks)
-    reference_context = "\n".join(f"- {line}" for line in reference_lines)
-    initial_user_msg = (
-        "다음은 정부 공공데이터에서 이 회원님과 관련성이 높아 보이는 서비스입니다 "
-        "(성별·생애주기가 명백히 안 맞는 서비스는 이미 제외했습니다):\n\n"
-        f"{gov_context or '(조건에 맞는 정부 공식 서비스를 찾지 못했습니다.)'}\n\n"
-        + (
-            f"다음 서비스들은 [회원 프로필]에 없는 특수 신분(장애인·국가유공자 등)이 "
-            f"있어야 대상이 되어 이미 '참고' 후보로 분류해뒀습니다. 그대로 구역B에 "
-            f"반영하세요(직접 판단해서 구역A로 옮기지 마세요):\n{reference_context}\n\n"
-            if reference_context else ""
-        )
-        + "위 자료와 추가 웹 검색을 통해 이 회원님께 맞는 복지서비스를 종합적으로 찾아 정리해주세요."
-    )
-    
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": initial_user_msg}
+    # 여기서부터는 랭그래프(recommend_graph.py)가 담당합니다: 위에서 코드로 이미 걸러온
+    # candidates "안에서만" LLM이 고르게 하고, 고른 결과를 코드가 다시 대조합니다
+    # (지어낸 servId·링크는 검증 단계에서 걸러지고, 서비스명/기관명/신청방법/출처링크 같은
+    # "사실" 항목은 LLM을 거치지 않고 candidates 데이터에서 코드가 그대로 렌더링합니다).
+    graph_result = recommend_graph.run_recommendation(candidates, profile_summary, reference_lines)
+    answer = graph_result["answer"]
+    verified = graph_result["verified"]
+    gov_data_warnings.extend(graph_result.get("warnings", []))
+
+    # 카드에 서비스명/기관명뿐 아니라 설명·문의처·출처링크까지 같이 실어서, 처음 들어보는
+    # 서비스도 클릭 없이(또는 클릭해서) 바로 확인할 수 있게 합니다.
+    gov_service_summary = [
+        {
+            "서비스명": v["servNm"], "구분": f"{v['scope']} 대상", "주관기관": v["jurMnofNm"],
+            "설명": v.get("outline", ""), "문의처": v.get("contact", ""), "링크": v.get("link", ""),
+        }
+        for v in verified
     ]
-    
-    answer, new_results, updated_messages = ai_recommend.chat_turn(messages)
-    
+
+    # 후속 대화(챗봇 이어가기)가 지금까지 안내한 내용을 참고할 수 있도록 대화 기록을
+    # 만들어둡니다. 이 첫 답변 자체는 이미 검증을 거쳤으므로, 후속 질문에 한해서만
+    # (ai_recommend.chat_turn의) 웹 검색 도구를 씁니다.
+    system_prompt = ai_recommend.build_system_prompt(profile_summary)
+    updated_messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "이 회원님께 맞는 복지서비스를 정리해주세요."},
+        {"role": "assistant", "content": answer},
+    ]
+
     return {
         "answer": answer,
         "gov_services": gov_service_summary,
-        "sources": new_results,
+        "sources": [],
         "updated_messages": updated_messages,
         "warnings": gov_data_warnings,
     }

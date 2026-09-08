@@ -19,6 +19,27 @@ function escapeHtml(value) {
   return div.innerHTML;
 }
 
+/*
+ * AI 추천 답변은 "## 소제목", "**굵게**" 같은 마크다운 기호가 섞여 나오는데, 그냥
+ * 텍스트로 보여주면 "##", "**" 기호가 그대로 보여서 지저분합니다. 전체를 먼저
+ * escapeHtml로 이스케이프한 뒤, 그 위에서 제목/굵게/링크 세 가지 패턴만 안전하게
+ * 실제 HTML 태그로 바꿔줍니다(그 외 텍스트는 손대지 않습니다).
+ */
+function renderChatMarkdown(value) {
+  const escaped = escapeHtml(value);
+  return escaped
+    .split("\n")
+    .map((line) => {
+      const heading = line.match(/^##\s+(.+)$/);
+      if (heading) return `<div class="chat-h2">${heading[1]}</div>`;
+      if (line.startsWith("   - ")) return `<div class="chat-subline">${line.trim()}</div>`;
+      return line;
+    })
+    .join("\n")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, text, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`);
+}
+
 async function apiFetch(url, options = {}) {
   const opts = { credentials: "same-origin", ...options };
   let res = await fetch(url, opts);

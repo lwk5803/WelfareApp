@@ -66,8 +66,6 @@ body {
 }
 .btn:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-secondary { background: var(--secondary); border-color: var(--secondary); }
-.btn-secondary:hover { background: var(--secondary-dark); border-color: var(--secondary-dark); }
 .btn-outline { background: #fff; color: var(--primary); border-color: var(--primary); }
 .btn-outline:hover { background: var(--primary-light); }
 .btn-ghost { background: transparent; border-color: var(--border); color: var(--text-muted); }
@@ -110,6 +108,12 @@ body {
   width: 100%;
 }
 .member-search-result:hover { background: var(--primary-light); border-color: var(--primary); }
+
+/* 맞춤형 복지서비스 추천 화면의 좌측 회원 선택 패널: 폭이 좁아 카드가 자연스럽게
+   세로 한 줄로 나열되므로, 화면 높이에 맞춰 더 길게 스크롤되도록 높이만 늘립니다. */
+@media (min-width: 1024px) {
+  .recommend-sidebar .member-search-results { max-height: calc(100vh - 220px); }
+}
 
 /* ---------- 뱃지 ---------- */
 .badge {
@@ -267,19 +271,50 @@ th { color: var(--primary-dark); background: var(--primary-light); }
 .chat-box {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-height: 420px;
+  gap: 14px;
+  max-height: 560px;
   overflow-y: auto;
-  padding: 12px;
+  padding: 16px;
   background: #FBF5EA;
   border-radius: var(--radius-sm);
 }
+.chat-row { display: flex; gap: 8px; align-items: flex-start; max-width: 100%; }
+.chat-row.user { flex-direction: row-reverse; }
+.chat-avatar {
+  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.chat-row.assistant .chat-avatar { background: var(--primary-light); color: var(--primary-dark); }
+.chat-row.user .chat-avatar { background: var(--secondary-light); color: var(--secondary-dark); }
+.chat-avatar i, .chat-avatar svg { width: 15px; height: 15px; }
 .chat-msg {
   padding: 10px 14px;
   border-radius: var(--radius-sm);
-  max-width: 80%;
+  max-width: 78%;
   font-size: 0.92rem;
   white-space: pre-wrap;
+  line-height: 1.6;
 }
-.chat-msg.user { align-self: flex-end; background: var(--primary); color: #fff; }
-.chat-msg.assistant { align-self: flex-start; background: #fff; border: 1px solid var(--border); }
+.chat-msg.user { background: var(--primary); color: #fff; border-bottom-right-radius: 3px; }
+.chat-msg.assistant { background: #fff; border: 1px solid var(--border); border-bottom-left-radius: 3px; }
+.chat-msg a { color: var(--primary-dark); font-weight: 600; text-decoration: underline; }
+.chat-msg.user a { color: #fff; }
+.chat-msg .chat-h2 { font-weight: 700; color: var(--primary-dark); margin: 2px 0 4px; font-size: 0.98rem; }
+.chat-msg.user .chat-h2 { color: #fff; }
+.chat-msg .chat-subline { padding-left: 12px; color: var(--text-muted); }
+.chat-typing { display: inline-flex; gap: 4px; padding: 3px 0; }
+.chat-typing span {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted);
+  animation: chat-typing-bounce 1.1s infinite ease-in-out;
+}
+.chat-typing span:nth-child(2) { animation-delay: 0.15s; }
+.chat-typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes chat-typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+/* ---------- 추천 서비스 카드 ---------- */
+.service-card-desc { font-size: 0.84rem; color: var(--text-muted); font-weight: 500; line-height: 1.5; }
+.service-card-link { font-size: 0.8rem; font-weight: 700; color: var(--primary-dark); margin-top: 2px; }
+a.entity-card:hover .service-card-link { text-decoration: underline; }
